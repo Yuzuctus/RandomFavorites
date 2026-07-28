@@ -81,6 +81,11 @@ type SendResult =
     | { ok: true; candidate: FavoriteCandidate; }
     | { ok: false; message: string; };
 
+interface SelectedSendResult {
+    sentCount: number;
+    errors: string[];
+}
+
 const logger = new Logger("RandomFavorites");
 const activeChannels = new Set<string>();
 const concreteKinds: ConcreteFavoriteKind[] = ["gif", "emoji", "sticker"];
@@ -151,29 +156,44 @@ const settings = definePluginSettings({
             return localize("Random GIF:", "Gif random :");
         },
     },
-    defaultKind: {
-        type: OptionType.SELECT,
+    sendGifsOnLeftClick: {
+        type: OptionType.BOOLEAN,
         get displayName() {
-            return localize("Default type", "Type par défaut");
+            return localize("GIFs on left click", "GIFs au clic gauche");
         },
         get description() {
             return localize(
-                "Type sent with a left click on the chat bar button.",
-                "Type envoyé avec un clic gauche sur le bouton de la barre de chat.",
+                "Send one random favorite GIF when left-clicking the chat bar button.",
+                "Envoie un GIF favori aléatoire avec le clic gauche sur le bouton de la barre de chat.",
             );
         },
-        get options() {
-            return [
-                {
-                    label: localize("All configured pools", "Toutes les listes configurées"),
-                    value: "all",
-                    default: true,
-                },
-                { label: localize("Favorite GIFs", "GIFs favoris"), value: "gif" },
-                { label: localize("Emojis", "Emotes"), value: "emoji" },
-                { label: "Stickers", value: "sticker" },
-            ] as const;
+        default: true,
+    },
+    sendEmojisOnLeftClick: {
+        type: OptionType.BOOLEAN,
+        get displayName() {
+            return localize("Emojis on left click", "Emotes au clic gauche");
         },
+        get description() {
+            return localize(
+                "Send one random emoji when left-clicking the chat bar button.",
+                "Envoie une emote aléatoire avec le clic gauche sur le bouton de la barre de chat.",
+            );
+        },
+        default: true,
+    },
+    sendStickersOnLeftClick: {
+        type: OptionType.BOOLEAN,
+        get displayName() {
+            return localize("Stickers on left click", "Stickers au clic gauche");
+        },
+        get description() {
+            return localize(
+                "Send one random sticker when left-clicking the chat bar button.",
+                "Envoie un sticker aléatoire avec le clic gauche sur le bouton de la barre de chat.",
+            );
+        },
+        default: true,
     },
     mixMode: {
         type: OptionType.SELECT,
@@ -182,8 +202,8 @@ const settings = definePluginSettings({
         },
         get description() {
             return localize(
-                "How mixed mode distributes its random picks.",
-                "Détermine comment le mode mixte répartit ses tirages aléatoires.",
+                "How /random-favorite distributes picks when every type is allowed.",
+                "Détermine comment /random-favorite répartit les tirages lorsque tous les types sont autorisés.",
             );
         },
         get options() {
@@ -293,6 +313,33 @@ function kindLabel(kind: FavoriteKind) {
     };
 
     return localize(...labels[kind]);
+}
+
+function shortKindLabel(kind: ConcreteFavoriteKind) {
+    const labels: Record<ConcreteFavoriteKind, [string, string]> = {
+        gif: ["GIF", "GIF"],
+        emoji: ["emoji", "emote"],
+        sticker: ["sticker", "sticker"],
+    };
+
+    return localize(...labels[kind]);
+}
+
+function selectedLeftClickKinds() {
+    const enabled: Record<ConcreteFavoriteKind, boolean> = {
+        gif: settings.store.sendGifsOnLeftClick,
+        emoji: settings.store.sendEmojisOnLeftClick,
+        sticker: settings.store.sendStickersOnLeftClick,
+    };
+
+    return concreteKinds.filter(kind => enabled[kind]);
+}
+
+function selectedKindsLabel(kinds: readonly ConcreteFavoriteKind[]) {
+    if (kinds.length === 0)
+        return localize("nothing selected", "aucune sélection");
+
+    return kinds.map(shortKindLabel).join(" + ");
 }
 
 function selectedPoolLabel(kind: FavoriteKind) {
@@ -693,16 +740,92 @@ async function sendRandomFavorite(
     }
 }
 
+async function sendSelectedFavorites(
+    kinds: readonly ConcreteFavoriteKind[],
+    channel: Channel,
+): Promise<SelectedSendResult> {
+    if (kinds.length === 0) {
+        return {
+            sentCount: 0,
+            errors: [localize(
+                "Select at least one type with a right click first.",
+                "Sélectionne d'abord au moins un type avec un clic droit.",
+            )],
+        };
+    }
+
+    if (activeChannels.has(channel.id)) {
+        return {
+            sentCount: 0,
+            errors: [localize(
+                "Random items are already being sent in this channel.",
+                "Des éléments aléatoires sont déjà en cours d'envoi dans ce salon.",
+            )],
+        };
+    }
+
+    if (!canSendMessages(channel)) {
+        return {
+            sentCount: 0,
+            errors: [localize(
+                "You do not have permission to send messages in this channel.",
+                "Tu n'as pas la permission d'envoyer des messages dans ce salon.",
+            )],
+        };
+    }
+
+    activeChannels.add(channel.id);
+
+    try {
+        const pools = collectFavoritePools("all", channel);
+        if (!pools) {
+            return {
+                sentCount: 0,
+                errors: [localize(
+                    "Discord has not loaded your synced favorites yet. Open an expression picker once, then try again.",
+                    "Discord n'a pas encore chargé tes favoris synchronisés. Ouvre une fois un sélecteur d'expressions, puis réessaie.",
+                )],
+            };
+        }
+
+        let sentCount = 0;
+        const errors: string[] = [];
+
+        for (const kind of kinds) {
+            const candidate = pickFromKind(kind, pools);
+            if (!candidate) {
+                errors.push(noCandidateMessage(kind, pools));
+                continue;
+            }
+
+            try {
+                await sendCandidate(candidate, channel);
+                sentCount++;
+            } catch (error) {
+                logger.error(`Failed to send a random ${kind} from the selected batch`, error);
+                errors.push(localize(
+                    `Discord refused to send the random ${shortKindLabel(kind)}. It may have been deleted or become unavailable.`,
+                    `Discord a refusé d'envoyer ${shortKindLabel(kind) === "emote" ? "l'emote" : `le ${shortKindLabel(kind)}`} aléatoire. L'élément a peut-être été supprimé ou n'est plus disponible.`,
+                ));
+            }
+        }
+
+        return { sentCount, errors };
+    } finally {
+        activeChannels.delete(channel.id);
+    }
+}
+
 async function runFromCommand(kind: FavoriteKind, channel: Channel) {
     const result = await sendRandomFavorite(kind, channel);
     if (!result.ok)
         sendBotMessage(channel.id, { content: `🎲 ${result.message}` });
 }
 
-async function runFromButton(kind: FavoriteKind, channel: Channel) {
-    const result = await sendRandomFavorite(kind, channel);
-    if (!result.ok)
-        showToast(result.message, Toasts.Type.FAILURE);
+async function runSelectedFromButton(channel: Channel) {
+    const result = await sendSelectedFavorites(selectedLeftClickKinds(), channel);
+    if (result.errors.length > 0)
+        showToast(result.errors.join("\n"), Toasts.Type.FAILURE);
 }
 
 function favoriteStats(channel: Channel) {
@@ -763,6 +886,12 @@ function RandomFavoritesIcon({
 }
 
 function RandomFavoritesMenu({ channel }: { channel: Channel; }) {
+    const selection = settings.use([
+        "sendGifsOnLeftClick",
+        "sendEmojisOnLeftClick",
+        "sendStickersOnLeftClick",
+    ]);
+
     return (
         <Menu.Menu
             navId="random-favorites"
@@ -770,27 +899,37 @@ function RandomFavoritesMenu({ channel }: { channel: Channel; }) {
             aria-label="Random Favorites"
         >
             <Menu.MenuGroup
-                label={localize("Send a random favorite", "Envoyer un favori aléatoire")}
+                label={localize(
+                    "Left click sends one of each selected type",
+                    "Le clic gauche envoie un élément de chaque type coché",
+                )}
             >
-                <Menu.MenuItem
-                    id="random-favorites-all"
-                    label={localize("Anything", "Tout")}
-                    action={() => void runFromButton("all", channel)}
-                />
-                <Menu.MenuItem
-                    id="random-favorites-gif"
+                <Menu.MenuCheckboxItem
+                    id="random-favorites-select-gif"
                     label="GIF"
-                    action={() => void runFromButton("gif", channel)}
+                    checked={selection.sendGifsOnLeftClick}
+                    dontCloseOnAction
+                    action={() =>
+                        settings.store.sendGifsOnLeftClick = !selection.sendGifsOnLeftClick
+                    }
                 />
-                <Menu.MenuItem
-                    id="random-favorites-emoji"
+                <Menu.MenuCheckboxItem
+                    id="random-favorites-select-emoji"
                     label={localize("Emoji", "Emote")}
-                    action={() => void runFromButton("emoji", channel)}
+                    checked={selection.sendEmojisOnLeftClick}
+                    dontCloseOnAction
+                    action={() =>
+                        settings.store.sendEmojisOnLeftClick = !selection.sendEmojisOnLeftClick
+                    }
                 />
-                <Menu.MenuItem
-                    id="random-favorites-sticker"
+                <Menu.MenuCheckboxItem
+                    id="random-favorites-select-sticker"
                     label="Sticker"
-                    action={() => void runFromButton("sticker", channel)}
+                    checked={selection.sendStickersOnLeftClick}
+                    dontCloseOnAction
+                    action={() =>
+                        settings.store.sendStickersOnLeftClick = !selection.sendStickersOnLeftClick
+                    }
                 />
             </Menu.MenuGroup>
             <Menu.MenuSeparator />
@@ -808,7 +947,12 @@ const RandomFavoritesButton: ChatBarButtonFactory = ({
     disabled,
     isAnyChat,
 }) => {
-    const pluginSettings = settings.use(["showChatBarButton", "defaultKind"]);
+    const pluginSettings = settings.use([
+        "showChatBarButton",
+        "sendGifsOnLeftClick",
+        "sendEmojisOnLeftClick",
+        "sendStickersOnLeftClick",
+    ]);
 
     if (
         !isAnyChat
@@ -817,16 +961,16 @@ const RandomFavoritesButton: ChatBarButtonFactory = ({
         || !canSendMessages(channel)
     ) return null;
 
-    const defaultKind = pluginSettings.defaultKind as FavoriteKind;
+    const selectedKinds = selectedLeftClickKinds();
     const tooltip = localize(
-        `Send random ${kindLabel(defaultKind)} · Right-click to choose`,
-        `Envoyer ${kindLabel(defaultKind)} au hasard · Clic droit pour choisir`,
+        `Send random: ${selectedKindsLabel(selectedKinds)} · Right-click to select`,
+        `Envoyer au hasard : ${selectedKindsLabel(selectedKinds)} · Clic droit pour sélectionner`,
     );
 
     return (
         <ChatBarButton
             tooltip={tooltip}
-            onClick={() => void runFromButton(defaultKind, channel)}
+            onClick={() => void runSelectedFromButton(channel)}
             onContextMenu={event => {
                 event.preventDefault();
                 ContextMenuApi.openContextMenu(
