@@ -556,7 +556,7 @@ function Write-UpdateLauncher {
         "@echo off",
         "setlocal",
         "title RandomFavorites - Vencord Manager",
-        "powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File `"%~dp0manager\RandomFavoritesManager.ps1`" %*",
+        "powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File `"%~dp0manager\RandomFavoritesManager.ps1`" -InstallRoot `"%~dp0.`" %*",
         "set `"EXIT_CODE=%ERRORLEVEL%`"",
         "echo.",
         "if `"%EXIT_CODE%`"==`"0`" (",
