@@ -11,7 +11,7 @@ utilisables ou seulement de tes favoris, selon tes réglages.
 - Bouton dé directement dans la barre de chat.
 - Clic droit : choisit le mode d'envoi et coche librement GIF, emote et/ou sticker.
 - Clic gauche, mode multiple : envoie un élément aléatoire de chaque type coché, dans l'ordre GIF, emote, sticker.
-- Clic gauche, mode unique : envoie un seul élément aléatoire choisi parmi tous les types cochés.
+- Clic gauche, mode unique : envoie un seul élément avec une chance égale pour chaque type coché et utilisable (33,33 % avec trois types, 50 % avec deux).
 - GIFs précédés de `Gif random :` et masqués par défaut avec le spoiler natif de Discord, révélables d'un clic.
 - Préfixe GIF, texte du préfixe et spoiler configurables indépendamment.
 - Commandes slash dédiées.
@@ -135,7 +135,8 @@ Vencord/
       └─ randomFavorites/
          ├─ index.tsx
          ├─ messageFormatting.ts
-         └─ shuffleBag.ts
+         ├─ shuffleBag.ts
+         └─ uniformRandom.ts
 ```
 
 Pour mettre le plugin à jour plus tard :
@@ -159,11 +160,11 @@ laquelle RandomFavorites est présent au moment de la compilation.
 - **GIF message / Texte des GIFs** : personnalise `Gif random :`.
 - **One item from each selected type / Un élément de chaque type coché** :
   - activé, le clic gauche envoie un élément de chaque catégorie cochée ;
-  - désactivé, le clic gauche n'envoie qu'un élément choisi parmi toutes les catégories cochées.
+  - désactivé, le clic gauche n'envoie qu'un élément et chaque catégorie cochée utilisable a exactement la même chance d'être choisie.
 - **GIFs on left click / GIFs au clic gauche** : inclut un GIF favori dans chaque clic gauche. Activé par défaut.
 - **Emojis on left click / Emotes au clic gauche** : inclut une emote de la liste configurée. Activé par défaut.
 - **Stickers on left click / Stickers au clic gauche** : inclut un sticker de la liste configurée. Activé par défaut.
-- **Mixed mode distribution / Répartition du mode mixte** : concerne le mode unique du clic gauche et la commande `/random-favorite` sans filtre :
+- **Mixed mode distribution / Répartition du mode mixte** : concerne la commande `/random-favorite` sans filtre :
   - l'équilibrage évite que les emotes, souvent plus nombreuses, écrasent complètement les GIFs et stickers ;
   - le mode uniforme donne la même chance à chaque élément de la liste combinée.
 - **Emoji source / Source des emotes** : toutes les emotes utilisables par défaut, ou seulement les favorites.

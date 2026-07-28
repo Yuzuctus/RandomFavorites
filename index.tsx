@@ -34,6 +34,7 @@ import {
 
 import { formatGifContent } from "./messageFormatting";
 import { ShuffleBag } from "./shuffleBag";
+import { pickUniform } from "./uniformRandom";
 
 type FavoriteKind = "all" | "gif" | "emoji" | "sticker";
 type ConcreteFavoriteKind = Exclude<FavoriteKind, "all">;
@@ -218,8 +219,8 @@ const settings = definePluginSettings({
         },
         get description() {
             return localize(
-                "How single-item mode and /random-favorite distribute picks across the allowed types.",
-                "Détermine comment le mode unique et /random-favorite répartissent les tirages entre les types autorisés.",
+                "How /random-favorite distributes picks when every type is allowed.",
+                "Détermine comment /random-favorite répartit les tirages lorsque tous les types sont autorisés.",
             );
         },
         get options() {
@@ -606,17 +607,11 @@ function collectFavoritePools(kind: FavoriteKind, channel: Channel): FavoritePoo
     return pools;
 }
 
-function randomItem<T>(items: readonly T[]): T | undefined {
-    return items.length === 0
-        ? undefined
-        : items[Math.floor(Math.random() * items.length)];
-}
-
 function pickFromKind(kind: ConcreteFavoriteKind, pools: FavoritePools) {
     const candidates = pools.candidates[kind];
     return settings.store.avoidRepeats
         ? candidateBags[kind].take(candidates)
-        : randomItem(candidates);
+        : pickUniform(candidates);
 }
 
 function pickCandidateFromKinds(
@@ -631,7 +626,7 @@ function pickCandidateFromKinds(
     if (settings.store.mixMode === "balanced") {
         const selectedKind = settings.store.avoidRepeats
             ? categoryBag.take(availableKinds)
-            : randomItem(availableKinds);
+            : pickUniform(availableKinds);
 
         return selectedKind ? pickFromKind(selectedKind, pools) : undefined;
     }
@@ -642,7 +637,19 @@ function pickCandidateFromKinds(
 
     return settings.store.avoidRepeats
         ? allCandidatesBag.take(allCandidates)
-        : randomItem(allCandidates);
+        : pickUniform(allCandidates);
+}
+
+function pickCandidateFromSelectedKinds(
+    kinds: readonly ConcreteFavoriteKind[],
+    pools: FavoritePools,
+): FavoriteCandidate | undefined {
+    const availableKinds = kinds.filter(
+        kind => pools.candidates[kind].length > 0,
+    );
+    const selectedKind = pickUniform(availableKinds);
+
+    return selectedKind ? pickFromKind(selectedKind, pools) : undefined;
 }
 
 function pickCandidate(kind: FavoriteKind, pools: FavoritePools): FavoriteCandidate | undefined {
@@ -848,7 +855,7 @@ async function sendSelectedFavorites(
                     errors.push(noCandidateMessage(kind, pools));
             }
         } else {
-            const candidate = pickCandidateFromKinds(kinds, pools);
+            const candidate = pickCandidateFromSelectedKinds(kinds, pools);
             if (!candidate) {
                 return {
                     sentCount: 0,
