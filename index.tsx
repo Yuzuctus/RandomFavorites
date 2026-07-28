@@ -96,122 +96,174 @@ const categoryBag = new ShuffleBag<ConcreteFavoriteKind>(kind => kind);
 const settings = definePluginSettings({
     showChatBarButton: {
         type: OptionType.BOOLEAN,
-        displayName: localize("Chat bar button", "Bouton dans la barre de chat"),
-        description: localize(
-            "Show the Random Favorites dice button in the chat bar.",
-            "Affiche le bouton dé de Random Favorites dans la barre de chat.",
-        ),
+        get displayName() {
+            return localize("Chat bar button", "Bouton dans la barre de chat");
+        },
+        get description() {
+            return localize(
+                "Show the Random Favorites dice button in the chat bar.",
+                "Affiche le bouton dé de Random Favorites dans la barre de chat.",
+            );
+        },
         default: true,
     },
     maskGifs: {
         type: OptionType.BOOLEAN,
-        displayName: localize("Mask random GIFs", "Masquer les GIFs aléatoires"),
-        description: localize(
-            "Hide random GIFs behind Discord's native spoiler mask.",
-            "Cache les GIFs aléatoires derrière le spoiler natif de Discord.",
-        ),
+        get displayName() {
+            return localize("Mask random GIFs", "Masquer les GIFs aléatoires");
+        },
+        get description() {
+            return localize(
+                "Hide random GIFs behind Discord's native spoiler mask.",
+                "Cache les GIFs aléatoires derrière le spoiler natif de Discord.",
+            );
+        },
         default: true,
     },
     showGifLabel: {
         type: OptionType.BOOLEAN,
-        displayName: localize("Show the GIF message", "Afficher le texte des GIFs"),
-        description: localize(
-            "Add a short message before every random GIF.",
-            "Ajoute un petit texte avant chaque GIF aléatoire.",
-        ),
+        get displayName() {
+            return localize("Show the GIF message", "Afficher le texte des GIFs");
+        },
+        get description() {
+            return localize(
+                "Add a short message before every random GIF.",
+                "Ajoute un petit texte avant chaque GIF aléatoire.",
+            );
+        },
         default: true,
     },
     gifLabel: {
         type: OptionType.STRING,
-        displayName: localize("GIF message", "Texte des GIFs"),
-        description: localize(
-            "Text displayed before random GIFs.",
-            "Texte affiché avant les GIFs aléatoires.",
-        ),
-        default: localize("Random GIF:", "Gif random :"),
-        placeholder: localize("Random GIF:", "Gif random :"),
+        get displayName() {
+            return localize("GIF message", "Texte des GIFs");
+        },
+        get description() {
+            return localize(
+                "Text displayed before random GIFs.",
+                "Texte affiché avant les GIFs aléatoires.",
+            );
+        },
+        get default() {
+            return localize("Random GIF:", "Gif random :");
+        },
+        get placeholder() {
+            return localize("Random GIF:", "Gif random :");
+        },
     },
     defaultKind: {
         type: OptionType.SELECT,
-        displayName: localize("Default type", "Type par défaut"),
-        description: localize(
-            "Type sent with a left click on the chat bar button.",
-            "Type envoyé avec un clic gauche sur le bouton de la barre de chat.",
-        ),
-        options: [
-            { label: localize("All configured pools", "Toutes les listes configurées"), value: "all", default: true },
-            { label: localize("Favorite GIFs", "GIFs favoris"), value: "gif" },
-            { label: localize("Emojis", "Emotes"), value: "emoji" },
-            { label: "Stickers", value: "sticker" },
-        ] as const,
+        get displayName() {
+            return localize("Default type", "Type par défaut");
+        },
+        get description() {
+            return localize(
+                "Type sent with a left click on the chat bar button.",
+                "Type envoyé avec un clic gauche sur le bouton de la barre de chat.",
+            );
+        },
+        get options() {
+            return [
+                {
+                    label: localize("All configured pools", "Toutes les listes configurées"),
+                    value: "all",
+                    default: true,
+                },
+                { label: localize("Favorite GIFs", "GIFs favoris"), value: "gif" },
+                { label: localize("Emojis", "Emotes"), value: "emoji" },
+                { label: "Stickers", value: "sticker" },
+            ] as const;
+        },
     },
     mixMode: {
         type: OptionType.SELECT,
-        displayName: localize("Mixed mode distribution", "Répartition du mode mixte"),
-        description: localize(
-            "How mixed mode distributes its random picks.",
-            "Détermine comment le mode mixte répartit ses tirages aléatoires.",
-        ),
-        options: [
-            {
-                label: localize("Balance item types", "Équilibrer les types"),
-                value: "balanced",
-                default: true,
-            },
-            {
-                label: localize(
-                    "Every item has the same chance",
-                    "Chaque élément a la même chance",
-                ),
-                value: "uniform",
-            },
-        ] as const,
+        get displayName() {
+            return localize("Mixed mode distribution", "Répartition du mode mixte");
+        },
+        get description() {
+            return localize(
+                "How mixed mode distributes its random picks.",
+                "Détermine comment le mode mixte répartit ses tirages aléatoires.",
+            );
+        },
+        get options() {
+            return [
+                {
+                    label: localize("Balance item types", "Équilibrer les types"),
+                    value: "balanced",
+                    default: true,
+                },
+                {
+                    label: localize(
+                        "Every item has the same chance",
+                        "Chaque élément a la même chance",
+                    ),
+                    value: "uniform",
+                },
+            ] as const;
+        },
     },
     emojiPool: {
         type: OptionType.SELECT,
-        displayName: localize("Emoji source", "Source des emotes"),
-        description: localize(
-            "Choose whether random emojis come from favorites or every usable emoji.",
-            "Choisis entre les emotes favorites et toutes les emotes utilisables.",
-        ),
-        options: [
-            {
-                label: localize("Favorite emojis only", "Emotes favorites uniquement"),
-                value: "favorites",
-            },
-            {
-                label: localize("All usable emojis", "Toutes les emotes utilisables"),
-                value: "all",
-                default: true,
-            },
-        ] as const,
+        get displayName() {
+            return localize("Emoji source", "Source des emotes");
+        },
+        get description() {
+            return localize(
+                "Choose whether random emojis come from favorites or every usable emoji.",
+                "Choisis entre les emotes favorites et toutes les emotes utilisables.",
+            );
+        },
+        get options() {
+            return [
+                {
+                    label: localize("Favorite emojis only", "Emotes favorites uniquement"),
+                    value: "favorites",
+                },
+                {
+                    label: localize("All usable emojis", "Toutes les emotes utilisables"),
+                    value: "all",
+                    default: true,
+                },
+            ] as const;
+        },
     },
     stickerPool: {
         type: OptionType.SELECT,
-        displayName: localize("Sticker source", "Source des stickers"),
-        description: localize(
-            "Choose whether random stickers come from favorites or every usable sticker.",
-            "Choisis entre les stickers favoris et tous les stickers utilisables.",
-        ),
-        options: [
-            {
-                label: localize("Favorite stickers only", "Stickers favoris uniquement"),
-                value: "favorites",
-            },
-            {
-                label: localize("All usable stickers", "Tous les stickers utilisables"),
-                value: "all",
-                default: true,
-            },
-        ] as const,
+        get displayName() {
+            return localize("Sticker source", "Source des stickers");
+        },
+        get description() {
+            return localize(
+                "Choose whether random stickers come from favorites or every usable sticker.",
+                "Choisis entre les stickers favoris et tous les stickers utilisables.",
+            );
+        },
+        get options() {
+            return [
+                {
+                    label: localize("Favorite stickers only", "Stickers favoris uniquement"),
+                    value: "favorites",
+                },
+                {
+                    label: localize("All usable stickers", "Tous les stickers utilisables"),
+                    value: "all",
+                    default: true,
+                },
+            ] as const;
+        },
     },
     avoidRepeats: {
         type: OptionType.BOOLEAN,
-        displayName: localize("Avoid repeats", "Éviter les répétitions"),
-        description: localize(
-            "Use every available item once in a shuffled order before repeating it.",
-            "Utilise chaque élément disponible une fois dans un ordre mélangé avant de le répéter.",
-        ),
+        get displayName() {
+            return localize("Avoid repeats", "Éviter les répétitions");
+        },
+        get description() {
+            return localize(
+                "Use every available item once in a shuffled order before repeating it.",
+                "Utilise chaque élément disponible une fois dans un ordre mélangé avant de le répéter.",
+            );
+        },
         default: true,
     },
 }, {
@@ -221,7 +273,11 @@ const settings = definePluginSettings({
 });
 
 function isFrench() {
-    return LocaleStore.locale.toLowerCase().startsWith("fr");
+    try {
+        return LocaleStore.locale?.toLowerCase().startsWith("fr") ?? false;
+    } catch {
+        return false;
+    }
 }
 
 function localize(english: string, french: string) {
@@ -846,10 +902,7 @@ const commands: Command[] = [
 
 export default definePlugin({
     name: "RandomFavorites",
-    description: localize(
-        "Send a random favorite GIF, emoji, sticker, or a balanced mix.",
-        "Envoie un GIF favori, une emote, un sticker ou un mélange équilibré au hasard.",
-    ),
+    description: "Send a random favorite GIF, emoji, sticker, or a balanced mix.",
     authors: [{ name: "Yuzuctus", id: 0n }],
     tags: ["Chat", "Commands", "Emotes", "Fun", "Media"],
     settings,
