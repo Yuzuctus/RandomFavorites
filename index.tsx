@@ -156,6 +156,22 @@ const settings = definePluginSettings({
             return localize("Random GIF:", "Gif random :");
         },
     },
+    sendEachSelectedType: {
+        type: OptionType.BOOLEAN,
+        get displayName() {
+            return localize(
+                "One item from each selected type",
+                "Un élément de chaque type coché",
+            );
+        },
+        get description() {
+            return localize(
+                "When enabled, a left click sends one item from every selected type. When disabled, it sends only one item chosen from all selected types.",
+                "Activé, le clic gauche envoie un élément de chaque type coché. Désactivé, il envoie un seul élément choisi parmi tous les types cochés.",
+            );
+        },
+        default: true,
+    },
     sendGifsOnLeftClick: {
         type: OptionType.BOOLEAN,
         get displayName() {
@@ -202,8 +218,8 @@ const settings = definePluginSettings({
         },
         get description() {
             return localize(
-                "How /random-favorite distributes picks when every type is allowed.",
-                "Détermine comment /random-favorite répartit les tirages lorsque tous les types sont autorisés.",
+                "How single-item mode and /random-favorite distribute picks across the allowed types.",
+                "Détermine comment le mode unique et /random-favorite répartissent les tirages entre les types autorisés.",
             );
         },
         get options() {
@@ -603,10 +619,11 @@ function pickFromKind(kind: ConcreteFavoriteKind, pools: FavoritePools) {
         : randomItem(candidates);
 }
 
-function pickCandidate(kind: FavoriteKind, pools: FavoritePools): FavoriteCandidate | undefined {
-    if (kind !== "all") return pickFromKind(kind, pools);
-
-    const availableKinds = concreteKinds.filter(
+function pickCandidateFromKinds(
+    kinds: readonly ConcreteFavoriteKind[],
+    pools: FavoritePools,
+): FavoriteCandidate | undefined {
+    const availableKinds = kinds.filter(
         candidateKind => pools.candidates[candidateKind].length > 0,
     );
     if (availableKinds.length === 0) return undefined;
@@ -628,6 +645,12 @@ function pickCandidate(kind: FavoriteKind, pools: FavoritePools): FavoriteCandid
         : randomItem(allCandidates);
 }
 
+function pickCandidate(kind: FavoriteKind, pools: FavoritePools): FavoriteCandidate | undefined {
+    return kind === "all"
+        ? pickCandidateFromKinds(concreteKinds, pools)
+        : pickFromKind(kind, pools);
+}
+
 function noCandidateMessage(kind: FavoriteKind, pools: FavoritePools) {
     const requestedKinds = kind === "all" ? concreteKinds : [kind];
     const rawCount = requestedKinds.reduce(
@@ -645,6 +668,29 @@ function noCandidateMessage(kind: FavoriteKind, pools: FavoritePools) {
     return localize(
         `${rawCount} ${selectedPoolLabel(kind)} were detected, but none can be used in this channel. Check server permissions, Nitro access, or deleted favorites.`,
         `${rawCount} ${selectedPoolLabel(kind)} détecté(s), mais aucun n'est utilisable dans ce salon. Vérifie les permissions du serveur, l'accès Nitro ou les favoris supprimés.`,
+    );
+}
+
+function noCandidateMessageForKinds(
+    kinds: readonly ConcreteFavoriteKind[],
+    pools: FavoritePools,
+) {
+    const rawCount = kinds.reduce(
+        (total, kind) => total + pools.rawCounts[kind],
+        0,
+    );
+    const selection = selectedKindsLabel(kinds);
+
+    if (rawCount === 0) {
+        return localize(
+            `No items were found for the selected types (${selection}). Add some favorites in Discord's expression picker or change the pool settings.`,
+            `Aucun élément trouvé pour les types cochés (${selection}). Ajoute des favoris dans le sélecteur d'expressions de Discord ou modifie les listes dans les réglages.`,
+        );
+    }
+
+    return localize(
+        `${rawCount} items were detected for the selected types (${selection}), but none can be used in this channel. Check server permissions, Nitro access, or deleted favorites.`,
+        `${rawCount} élément(s) détecté(s) pour les types cochés (${selection}), mais aucun n'est utilisable dans ce salon. Vérifie les permissions du serveur, l'accès Nitro ou les favoris supprimés.`,
     );
 }
 
@@ -742,6 +788,7 @@ async function sendRandomFavorite(
 
 async function sendSelectedFavorites(
     kinds: readonly ConcreteFavoriteKind[],
+    sendEachSelectedType: boolean,
     channel: Channel,
 ): Promise<SelectedSendResult> {
     if (kinds.length === 0) {
@@ -790,22 +837,40 @@ async function sendSelectedFavorites(
 
         let sentCount = 0;
         const errors: string[] = [];
+        const selectedCandidates: FavoriteCandidate[] = [];
 
-        for (const kind of kinds) {
-            const candidate = pickFromKind(kind, pools);
+        if (sendEachSelectedType) {
+            for (const kind of kinds) {
+                const candidate = pickFromKind(kind, pools);
+                if (candidate)
+                    selectedCandidates.push(candidate);
+                else
+                    errors.push(noCandidateMessage(kind, pools));
+            }
+        } else {
+            const candidate = pickCandidateFromKinds(kinds, pools);
             if (!candidate) {
-                errors.push(noCandidateMessage(kind, pools));
-                continue;
+                return {
+                    sentCount: 0,
+                    errors: [noCandidateMessageForKinds(kinds, pools)],
+                };
             }
 
+            selectedCandidates.push(candidate);
+        }
+
+        for (const candidate of selectedCandidates) {
             try {
                 await sendCandidate(candidate, channel);
                 sentCount++;
             } catch (error) {
-                logger.error(`Failed to send a random ${kind} from the selected batch`, error);
+                logger.error(
+                    `Failed to send a random ${candidate.kind} from the selected batch`,
+                    error,
+                );
                 errors.push(localize(
-                    `Discord refused to send the random ${shortKindLabel(kind)}. It may have been deleted or become unavailable.`,
-                    `Discord a refusé d'envoyer ${shortKindLabel(kind) === "emote" ? "l'emote" : `le ${shortKindLabel(kind)}`} aléatoire. L'élément a peut-être été supprimé ou n'est plus disponible.`,
+                    `Discord refused to send the random ${shortKindLabel(candidate.kind)}. It may have been deleted or become unavailable.`,
+                    `Discord a refusé d'envoyer ${shortKindLabel(candidate.kind) === "emote" ? "l'emote" : `le ${shortKindLabel(candidate.kind)}`} aléatoire. L'élément a peut-être été supprimé ou n'est plus disponible.`,
                 ));
             }
         }
@@ -823,7 +888,11 @@ async function runFromCommand(kind: FavoriteKind, channel: Channel) {
 }
 
 async function runSelectedFromButton(channel: Channel) {
-    const result = await sendSelectedFavorites(selectedLeftClickKinds(), channel);
+    const result = await sendSelectedFavorites(
+        selectedLeftClickKinds(),
+        settings.store.sendEachSelectedType,
+        channel,
+    );
     if (result.errors.length > 0)
         showToast(result.errors.join("\n"), Toasts.Type.FAILURE);
 }
@@ -887,6 +956,7 @@ function RandomFavoritesIcon({
 
 function RandomFavoritesMenu({ channel }: { channel: Channel; }) {
     const selection = settings.use([
+        "sendEachSelectedType",
         "sendGifsOnLeftClick",
         "sendEmojisOnLeftClick",
         "sendStickersOnLeftClick",
@@ -899,10 +969,24 @@ function RandomFavoritesMenu({ channel }: { channel: Channel; }) {
             aria-label="Random Favorites"
         >
             <Menu.MenuGroup
-                label={localize(
-                    "Left click sends one of each selected type",
-                    "Le clic gauche envoie un élément de chaque type coché",
-                )}
+                label={localize("Left-click mode", "Mode du clic gauche")}
+            >
+                <Menu.MenuCheckboxItem
+                    id="random-favorites-send-each"
+                    label={localize(
+                        "One item from each selected type",
+                        "Un élément de chaque type coché",
+                    )}
+                    checked={selection.sendEachSelectedType}
+                    dontCloseOnAction
+                    action={() =>
+                        settings.store.sendEachSelectedType = !selection.sendEachSelectedType
+                    }
+                />
+            </Menu.MenuGroup>
+            <Menu.MenuSeparator />
+            <Menu.MenuGroup
+                label={localize("Included types", "Types inclus")}
             >
                 <Menu.MenuCheckboxItem
                     id="random-favorites-select-gif"
@@ -949,6 +1033,7 @@ const RandomFavoritesButton: ChatBarButtonFactory = ({
 }) => {
     const pluginSettings = settings.use([
         "showChatBarButton",
+        "sendEachSelectedType",
         "sendGifsOnLeftClick",
         "sendEmojisOnLeftClick",
         "sendStickersOnLeftClick",
@@ -962,10 +1047,16 @@ const RandomFavoritesButton: ChatBarButtonFactory = ({
     ) return null;
 
     const selectedKinds = selectedLeftClickKinds();
-    const tooltip = localize(
-        `Send random: ${selectedKindsLabel(selectedKinds)} · Right-click to select`,
-        `Envoyer au hasard : ${selectedKindsLabel(selectedKinds)} · Clic droit pour sélectionner`,
-    );
+    const selectionLabel = selectedKindsLabel(selectedKinds);
+    const tooltip = pluginSettings.sendEachSelectedType
+        ? localize(
+            `Send one of each: ${selectionLabel} · Right-click to configure`,
+            `Envoyer un de chaque : ${selectionLabel} · Clic droit pour configurer`,
+        )
+        : localize(
+            `Send one among: ${selectionLabel} · Right-click to configure`,
+            `Envoyer un seul parmi : ${selectionLabel} · Clic droit pour configurer`,
+        );
 
     return (
         <ChatBarButton

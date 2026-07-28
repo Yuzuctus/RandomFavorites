@@ -9,8 +9,9 @@ utilisables ou seulement de tes favoris, selon tes réglages.
 ## Fonctionnalités
 
 - Bouton dé directement dans la barre de chat.
-- Clic droit : coche librement GIF, emote et/ou sticker, puis mémorise la sélection.
-- Clic gauche : envoie un élément aléatoire de chaque type coché, dans l'ordre GIF, emote, sticker.
+- Clic droit : choisit le mode d'envoi et coche librement GIF, emote et/ou sticker.
+- Clic gauche, mode multiple : envoie un élément aléatoire de chaque type coché, dans l'ordre GIF, emote, sticker.
+- Clic gauche, mode unique : envoie un seul élément aléatoire choisi parmi tous les types cochés.
 - GIFs précédés de `Gif random :` et masqués par défaut avec le spoiler natif de Discord, révélables d'un clic.
 - Préfixe GIF, texte du préfixe et spoiler configurables indépendamment.
 - Commandes slash dédiées.
@@ -156,10 +157,13 @@ laquelle RandomFavorites est présent au moment de la compilation.
 - **Mask random GIFs / Masquer les GIFs aléatoires** : active ou désactive le spoiler. Activé par défaut.
 - **Show the GIF message / Afficher le texte des GIFs** : affiche ou retire le préfixe.
 - **GIF message / Texte des GIFs** : personnalise `Gif random :`.
+- **One item from each selected type / Un élément de chaque type coché** :
+  - activé, le clic gauche envoie un élément de chaque catégorie cochée ;
+  - désactivé, le clic gauche n'envoie qu'un élément choisi parmi toutes les catégories cochées.
 - **GIFs on left click / GIFs au clic gauche** : inclut un GIF favori dans chaque clic gauche. Activé par défaut.
 - **Emojis on left click / Emotes au clic gauche** : inclut une emote de la liste configurée. Activé par défaut.
 - **Stickers on left click / Stickers au clic gauche** : inclut un sticker de la liste configurée. Activé par défaut.
-- **Mixed mode distribution / Répartition du mode mixte** : concerne la commande `/random-favorite` sans filtre :
+- **Mixed mode distribution / Répartition du mode mixte** : concerne le mode unique du clic gauche et la commande `/random-favorite` sans filtre :
   - l'équilibrage évite que les emotes, souvent plus nombreuses, écrasent complètement les GIFs et stickers ;
   - le mode uniforme donne la même chance à chaque élément de la liste combinée.
 - **Emoji source / Source des emotes** : toutes les emotes utilisables par défaut, ou seulement les favorites.
@@ -168,11 +172,13 @@ laquelle RandomFavorites est présent au moment de la compilation.
 
 Le bouton peut aussi être masqué via le menu contextuel de la barre de chat, dans les réglages globaux des boutons Vencord.
 
-Le clic droit sur le bouton dé ouvre les mêmes trois choix sous forme de cases à
-cocher. La sélection est sauvegardée dans les réglages Vencord et reste donc
-active après avoir fermé le menu ou redémarré Discord. Si un type sélectionné
-n'est pas utilisable dans le salon, les autres types sont tout de même envoyés
-et une seule notification récapitule le problème.
+Le clic droit sur le bouton dé ouvre le mode d'envoi et les trois types sous
+forme de cases à cocher. Tous ces choix sont sauvegardés dans les réglages
+Vencord et restent donc actifs après avoir fermé le menu ou redémarré Discord.
+Dans le mode multiple, si un type sélectionné n'est pas utilisable dans le
+salon, les autres types sont tout de même envoyés et une seule notification
+récapitule le problème. Dans le mode unique, les types vides sont ignorés tant
+qu'au moins un des types cochés contient un élément utilisable.
 
 Pour ouvrir ces options : `Paramètres utilisateur > Vencord > Plugins`, cherche
 **RandomFavorites**, puis clique sur la roue dentée du plugin.
