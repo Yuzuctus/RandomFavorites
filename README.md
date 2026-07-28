@@ -38,6 +38,70 @@ utilisables ou seulement de tes favoris, selon tes réglages.
 
 Les userplugins Vencord doivent être compilés avec Vencord. Une installation Vencord classique obtenue uniquement avec l'installeur ne contient pas les sources nécessaires.
 
+### Installation automatique sous Windows
+
+1. Sur GitHub, clique sur `Code > Download ZIP`.
+2. Extrais complètement le ZIP.
+3. Double-clique sur **`RandomFavoritesManager.cmd`**.
+4. Laisse le gestionnaire compiler, fermer Discord, injecter Vencord et le relancer.
+5. Active **RandomFavorites** dans `Paramètres > Vencord > Plugins`.
+
+Le gestionnaire :
+
+- réutilise Git et Node.js lorsqu'ils sont déjà installés et compatibles ;
+- télécharge sinon des copies portables temporaires de MinGit et Node.js ;
+- vérifie les archives téléchargées avec leur empreinte SHA-256 officielle ;
+- utilise temporairement la version exacte de pnpm demandée par Vencord ;
+- supprime les copies temporaires de Git, Node.js et pnpm à la fin, même en cas d'erreur ;
+- conserve la build dans `%LOCALAPPDATA%\RandomFavoritesVencord\Vencord` ;
+- installe ou met à jour Vencord depuis son dépôt officiel ;
+- installe ou met à jour RandomFavorites depuis ce dépôt ;
+- refuse d'écraser des modifications Git locales ;
+- compile, injecte Discord Stable et vérifie le chemin du patch ;
+- écrit un journal et un état de la dernière installation réussie.
+
+Pour toutes les mises à jour suivantes, double-clique simplement sur :
+
+```text
+%LOCALAPPDATA%\RandomFavoritesVencord\Update RandomFavorites.cmd
+```
+
+Le même programme met alors à jour **Vencord et RandomFavorites**, réinstalle
+les dépendances exactes, recompile et réinjecte la build. Il peut donc réparer
+automatiquement l'installation après une mise à jour de Discord qui aurait
+retiré le patch.
+
+Options utiles depuis un terminal :
+
+```powershell
+# Installer une autre branche Discord
+RandomFavoritesManager.cmd -Branch ptb
+RandomFavoritesManager.cmd -Branch canary
+
+# Choisir un autre dossier persistant
+RandomFavoritesManager.cmd -InstallRoot "D:\RandomFavoritesVencord"
+
+# Compiler sans toucher à Discord
+RandomFavoritesManager.cmd -SkipInject
+```
+
+Prérequis pour l'installation entièrement automatique : Windows 10/11
+64 bits, connexion Internet et Discord Desktop. Git, Node.js et pnpm ne sont
+pas des prérequis manuels. Le gestionnaire n'installe aucun de ces outils dans
+Windows : lorsqu'ils manquent, il utilise des archives portables dans
+`%LOCALAPPDATA%\RandomFavoritesVencord\.bootstrap`, puis supprime ce dossier.
+
+Les sources Vencord, RandomFavorites, les dépendances de compilation et le
+bundle `dist` restent dans le dossier géré. Elles sont nécessaires pour
+recompiler rapidement lors d'une future mise à jour. Rien n'est ajouté au
+`PATH` permanent de Windows.
+
+Le gestionnaire est un script lisible. Il télécharge MinGit depuis le projet
+officiel Git for Windows, Node.js depuis `nodejs.org`, Vencord depuis son dépôt
+officiel et RandomFavorites depuis le dépôt Yuzuctus.
+
+### Installation manuelle
+
 1. Installe Vencord depuis les sources en suivant les guides officiels :
    [installation depuis les sources](https://docs.vencord.dev/installing/) et
    [installation des plugins personnalisés](https://docs.vencord.dev/installing/custom-plugins/).
@@ -82,9 +146,9 @@ cd ..\..\..
 pnpm build
 ```
 
-L'installeur officiel de Vencord n'inclut pas ce dépôt tiers. Il installe la
-version officielle sans RandomFavorites ; le plugin doit être présent dans
-`src/userplugins` au moment de compiler la version personnalisée.
+L'installeur officiel de Vencord n'inclut pas ce dépôt tiers. Le gestionnaire
+automatique résout ce point en préparant une build Vencord persistante dans
+laquelle RandomFavorites est présent au moment de la compilation.
 
 ## Réglages
 
