@@ -11,12 +11,12 @@ utilisables ou seulement de tes favoris, selon tes réglages.
 - Bouton dé directement dans la barre de chat.
 - Clic droit : choisit le mode d'envoi et coche librement GIF, emote et/ou sticker.
 - Clic gauche, mode multiple : envoie un élément aléatoire de chaque type coché, dans l'ordre GIF, emote, sticker.
-- Clic gauche, mode unique : envoie un seul élément avec une chance égale pour chaque type coché et utilisable (33,33 % avec trois types, 50 % avec deux).
+- Clic gauche, mode unique : envoie un seul élément selon une répartition configurable, équitable par type ou totalement aléatoire parmi tous les éléments.
 - GIFs précédés de `Gif random :` et masqués par défaut avec le spoiler natif de Discord, révélables d'un clic.
 - Préfixe GIF, texte du préfixe et spoiler configurables indépendamment.
 - Commandes slash dédiées.
-- Mode équilibré : chaque catégorie disponible revient aussi souvent.
-- Mode uniforme : chaque favori individuel a exactement la même chance.
+- Répartition équitable : choisit d'abord le type à chances égales (33,33 % avec trois types, 50 % avec deux), puis choisit un élément dans ce type.
+- Répartition totalement aléatoire : chaque élément individuel a la même chance, quel que soit son type.
 - Toutes les emotes et tous les stickers utilisables sont inclus par défaut, avec un mode « favoris uniquement » disponible.
 - Shuffle bag optionnel : tous les favoris passent une fois avant la moindre répétition.
 - Filtrage des favoris supprimés, introuvables ou inutilisables dans le salon.
@@ -160,13 +160,13 @@ laquelle RandomFavorites est présent au moment de la compilation.
 - **GIF message / Texte des GIFs** : personnalise `Gif random :`.
 - **One item from each selected type / Un élément de chaque type coché** :
   - activé, le clic gauche envoie un élément de chaque catégorie cochée ;
-  - désactivé, le clic gauche n'envoie qu'un élément et chaque catégorie cochée utilisable a exactement la même chance d'être choisie.
+  - désactivé, le clic gauche n'envoie qu'un élément selon le réglage de répartition.
 - **GIFs on left click / GIFs au clic gauche** : inclut un GIF favori dans chaque clic gauche. Activé par défaut.
 - **Emojis on left click / Emotes au clic gauche** : inclut une emote de la liste configurée. Activé par défaut.
 - **Stickers on left click / Stickers au clic gauche** : inclut un sticker de la liste configurée. Activé par défaut.
-- **Mixed mode distribution / Répartition du mode mixte** : concerne la commande `/random-favorite` sans filtre :
-  - l'équilibrage évite que les emotes, souvent plus nombreuses, écrasent complètement les GIFs et stickers ;
-  - le mode uniforme donne la même chance à chaque élément de la liste combinée.
+- **Mixed-mode type distribution / Répartition des types en mode mixte** : concerne le mode unique du clic gauche et la commande `/random-favorite` sans filtre :
+  - **Répartition équitable** : chaque type coché et utilisable a la même chance ; le plugin choisit ensuite un élément dans le type tiré ;
+  - **Totalement aléatoire** : tous les éléments des types cochés sont réunis, puis un élément est tiré uniformément. Un type qui contient davantage d'éléments devient donc plus probable.
 - **Emoji source / Source des emotes** : toutes les emotes utilisables par défaut, ou seulement les favorites.
 - **Sticker source / Source des stickers** : tous les stickers utilisables par défaut, ou seulement les favoris.
 - **Avoid repeats / Éviter les répétitions** : épuise un ordre mélangé avant de recommencer.
@@ -174,8 +174,9 @@ laquelle RandomFavorites est présent au moment de la compilation.
 Le bouton peut aussi être masqué via le menu contextuel de la barre de chat, dans les réglages globaux des boutons Vencord.
 
 Le clic droit sur le bouton dé ouvre le mode d'envoi et les trois types sous
-forme de cases à cocher. Tous ces choix sont sauvegardés dans les réglages
-Vencord et restent donc actifs après avoir fermé le menu ou redémarré Discord.
+forme de cases à cocher. Lorsque le mode unique est actif, les deux répartitions
+apparaissent aussi directement dans ce menu. Tous ces choix sont sauvegardés
+dans les réglages Vencord et restent donc actifs après avoir fermé le menu ou redémarré Discord.
 Dans le mode multiple, si un type sélectionné n'est pas utilisable dans le
 salon, les autres types sont tout de même envoyés et une seule notification
 récapitule le problème. Dans le mode unique, les types vides sont ignorés tant

@@ -97,7 +97,6 @@ const candidateBags: Record<ConcreteFavoriteKind, ShuffleBag<FavoriteCandidate>>
     sticker: new ShuffleBag(candidate => candidate.key),
 };
 const allCandidatesBag = new ShuffleBag<FavoriteCandidate>(candidate => candidate.key);
-const categoryBag = new ShuffleBag<ConcreteFavoriteKind>(kind => kind);
 
 const settings = definePluginSettings({
     showChatBarButton: {
@@ -215,25 +214,31 @@ const settings = definePluginSettings({
     mixMode: {
         type: OptionType.SELECT,
         get displayName() {
-            return localize("Mixed mode distribution", "Répartition du mode mixte");
+            return localize(
+                "Mixed-mode type distribution",
+                "Répartition des types en mode mixte",
+            );
         },
         get description() {
             return localize(
-                "How /random-favorite distributes picks when every type is allowed.",
-                "Détermine comment /random-favorite répartit les tirages lorsque tous les types sont autorisés.",
+                "How single-item mode and /random-favorite choose between the allowed types.",
+                "Détermine comment le mode unique et /random-favorite choisissent entre les types autorisés.",
             );
         },
         get options() {
             return [
                 {
-                    label: localize("Balance item types", "Équilibrer les types"),
+                    label: localize(
+                        "Balanced distribution (equal chance per type)",
+                        "Répartition équitable (même chance par type)",
+                    ),
                     value: "balanced",
                     default: true,
                 },
                 {
                     label: localize(
-                        "Every item has the same chance",
-                        "Chaque élément a la même chance",
+                        "Fully random (equal chance per item)",
+                        "Totalement aléatoire (même chance par élément)",
                     ),
                     value: "uniform",
                 },
@@ -624,9 +629,7 @@ function pickCandidateFromKinds(
     if (availableKinds.length === 0) return undefined;
 
     if (settings.store.mixMode === "balanced") {
-        const selectedKind = settings.store.avoidRepeats
-            ? categoryBag.take(availableKinds)
-            : pickUniform(availableKinds);
+        const selectedKind = pickUniform(availableKinds);
 
         return selectedKind ? pickFromKind(selectedKind, pools) : undefined;
     }
@@ -638,18 +641,6 @@ function pickCandidateFromKinds(
     return settings.store.avoidRepeats
         ? allCandidatesBag.take(allCandidates)
         : pickUniform(allCandidates);
-}
-
-function pickCandidateFromSelectedKinds(
-    kinds: readonly ConcreteFavoriteKind[],
-    pools: FavoritePools,
-): FavoriteCandidate | undefined {
-    const availableKinds = kinds.filter(
-        kind => pools.candidates[kind].length > 0,
-    );
-    const selectedKind = pickUniform(availableKinds);
-
-    return selectedKind ? pickFromKind(selectedKind, pools) : undefined;
 }
 
 function pickCandidate(kind: FavoriteKind, pools: FavoritePools): FavoriteCandidate | undefined {
@@ -855,7 +846,7 @@ async function sendSelectedFavorites(
                     errors.push(noCandidateMessage(kind, pools));
             }
         } else {
-            const candidate = pickCandidateFromSelectedKinds(kinds, pools);
+            const candidate = pickCandidateFromKinds(kinds, pools);
             if (!candidate) {
                 return {
                     sentCount: 0,
@@ -964,6 +955,7 @@ function RandomFavoritesIcon({
 function RandomFavoritesMenu({ channel }: { channel: Channel; }) {
     const selection = settings.use([
         "sendEachSelectedType",
+        "mixMode",
         "sendGifsOnLeftClick",
         "sendEmojisOnLeftClick",
         "sendStickersOnLeftClick",
@@ -991,6 +983,40 @@ function RandomFavoritesMenu({ channel }: { channel: Channel; }) {
                     }
                 />
             </Menu.MenuGroup>
+            {!selection.sendEachSelectedType && (
+                <>
+                    <Menu.MenuSeparator />
+                    <Menu.MenuGroup
+                        label={localize(
+                            "Mixed-mode type distribution",
+                            "Répartition des types en mode mixte",
+                        )}
+                    >
+                        <Menu.MenuRadioItem
+                            id="random-favorites-mix-balanced"
+                            group="random-favorites-mix-mode"
+                            label={localize(
+                                "Balanced distribution (equal chance per type)",
+                                "Répartition équitable (même chance par type)",
+                            )}
+                            checked={selection.mixMode === "balanced"}
+                            dontCloseOnAction
+                            action={() => settings.store.mixMode = "balanced"}
+                        />
+                        <Menu.MenuRadioItem
+                            id="random-favorites-mix-uniform"
+                            group="random-favorites-mix-mode"
+                            label={localize(
+                                "Fully random (equal chance per item)",
+                                "Totalement aléatoire (même chance par élément)",
+                            )}
+                            checked={selection.mixMode === "uniform"}
+                            dontCloseOnAction
+                            action={() => settings.store.mixMode = "uniform"}
+                        />
+                    </Menu.MenuGroup>
+                </>
+            )}
             <Menu.MenuSeparator />
             <Menu.MenuGroup
                 label={localize("Included types", "Types inclus")}
@@ -1041,6 +1067,7 @@ const RandomFavoritesButton: ChatBarButtonFactory = ({
     const pluginSettings = settings.use([
         "showChatBarButton",
         "sendEachSelectedType",
+        "mixMode",
         "sendGifsOnLeftClick",
         "sendEmojisOnLeftClick",
         "sendStickersOnLeftClick",
@@ -1060,10 +1087,15 @@ const RandomFavoritesButton: ChatBarButtonFactory = ({
             `Send one of each: ${selectionLabel} · Right-click to configure`,
             `Envoyer un de chaque : ${selectionLabel} · Clic droit pour configurer`,
         )
-        : localize(
-            `Send one among: ${selectionLabel} · Right-click to configure`,
-            `Envoyer un seul parmi : ${selectionLabel} · Clic droit pour configurer`,
-        );
+        : pluginSettings.mixMode === "balanced"
+            ? localize(
+                `Send one (equal type odds): ${selectionLabel} · Right-click to configure`,
+                `Envoyer un seul (types équiprobables) : ${selectionLabel} · Clic droit pour configurer`,
+            )
+            : localize(
+                `Send one among: ${selectionLabel} · Right-click to configure`,
+                `Envoyer un seul parmi : ${selectionLabel} · Clic droit pour configurer`,
+            );
 
     return (
         <ChatBarButton
@@ -1158,7 +1190,6 @@ export default definePlugin({
     stop() {
         activeChannels.clear();
         allCandidatesBag.clear();
-        categoryBag.clear();
         concreteKinds.forEach(kind => candidateBags[kind].clear());
     },
 });
