@@ -1,251 +1,92 @@
-# Random Favorites pour Vencord
+# RandomFavorites pour Vencord
 
-[RandomFavorites](https://github.com/Yuzuctus/RandomFavorites) envoie instantanément un GIF favori, une emote ou un sticker choisi au hasard depuis Discord.
-
-Le plugin ne maintient pas de liste externe. Les GIFs viennent de tes favoris
-Discord natifs. Les emotes et stickers peuvent venir de tous les éléments
-utilisables ou seulement de tes favoris, selon tes réglages.
-
-## Fonctionnalités
-
-- Bouton dé directement dans la barre de chat.
-- Clic droit : choisit le mode d'envoi et coche librement GIF, emote et/ou sticker.
-- Clic gauche, mode multiple : envoie un élément aléatoire de chaque type coché, dans l'ordre GIF, emote, sticker.
-- Clic gauche, mode unique : envoie un seul élément selon une répartition configurable, équitable par type ou totalement aléatoire parmi tous les éléments.
-- GIFs précédés de `Gif random :` et masqués par défaut avec le spoiler natif de Discord, révélables d'un clic.
-- Préfixe GIF, texte du préfixe et spoiler configurables indépendamment.
-- Commandes slash dédiées.
-- Répartition équitable : choisit d'abord le type à chances égales (33,33 % avec trois types, 50 % avec deux), puis choisit un élément dans ce type.
-- Répartition totalement aléatoire : chaque élément individuel a la même chance, quel que soit son type.
-- Toutes les emotes et tous les stickers utilisables sont inclus par défaut, avec un mode « favoris uniquement » disponible.
-- Shuffle bag optionnel : tous les favoris passent une fois avant la moindre répétition.
-- Filtrage des favoris supprimés, introuvables ou inutilisables dans le salon.
-- Respect des permissions d'emotes/stickers externes et d'envoi de messages.
-- Conservation d'une réponse Discord en cours lorsque le favori est envoyé.
-- Interface et erreurs en français lorsque Discord est en français, sinon en anglais.
-- Aucun serveur externe, aucune télémétrie, aucun token et aucune requête réseau ajoutée.
-
-## Commandes
-
-| Commande | Action |
-| --- | --- |
-| `/random-favorite` | Envoie un favori aléatoire ; l'option `type` permet de filtrer. |
-| `/random-gif` | Envoie uniquement un GIF favori. |
-| `/random-emoji` | Envoie une emote depuis la liste configurée. |
-| `/random-sticker` | Envoie un sticker depuis la liste configurée. |
-| `/random-favorite-stats` | Affiche le nombre de favoris enregistrés et actuellement utilisables. |
+Envoie un **GIF favori**, une **emote** ou un **sticker** aléatoire directement depuis la barre de chat Discord.
 
 ## Installation
 
-Les userplugins Vencord doivent être compilés avec Vencord. Une installation Vencord classique obtenue uniquement avec l'installeur ne contient pas les sources nécessaires.
+> Windows 10/11 et Discord Desktop sont nécessaires.
+>
+> Tu n'as pas besoin d'installer Git, Node.js ou pnpm.
 
-### Installation automatique sous Windows
-
-1. Sur GitHub, clique sur `Code > Download ZIP`.
+1. [Télécharge RandomFavorites au format ZIP](https://github.com/Yuzuctus/RandomFavorites/archive/refs/heads/main.zip).
 2. Extrais complètement le ZIP.
-3. Double-clique sur **`Installer RandomFavorites.cmd`**, visible à la racine du dossier.
-4. Confirme avec `O`, puis laisse l'installateur travailler.
-5. Active **RandomFavorites** dans `Paramètres > Vencord > Plugins`.
+3. Ouvre le dossier extrait.
+4. Double-clique sur **`Installer RandomFavorites.cmd`**.
+5. Confirme avec `O` et attends la fin de l'installation.
+6. Dans Discord, ouvre `Paramètres > Vencord > Plugins` et active **RandomFavorites**.
 
-Tu n'as pas besoin d'installer Git, Node.js ou pnpm toi-même. L'interface
-affiche sept grandes étapes, une barre de progression et le temps utilisé,
-sans remplir l'écran avec toutes les commandes techniques. Discord reste
-ouvert pendant la préparation ; il est fermé seulement pour l'installation
-finale, puis relancé automatiquement.
+Discord reste ouvert pendant la préparation. Il se ferme seulement à la fin de l'installation, puis redémarre automatiquement.
 
-Si une erreur survient, l'interface explique à quelle étape elle s'est produite
-et indique le journal de diagnostic complet. L'option `-ShowDetails` permet
-d'afficher aussi toutes les commandes pour du dépannage avancé.
+## Utilisation
 
-Sous le capot, l'installateur :
+Un bouton en forme de dé apparaît dans la barre de chat :
 
-- réutilise Git et Node.js lorsqu'ils sont déjà installés et compatibles ;
-- télécharge sinon des copies portables temporaires de MinGit et Node.js ;
-- vérifie les archives téléchargées avec leur empreinte SHA-256 officielle ;
-- utilise temporairement la version exacte de pnpm demandée par Vencord ;
-- supprime les copies temporaires de Git, Node.js et pnpm à la fin, même en cas d'erreur ;
-- conserve la build dans `%LOCALAPPDATA%\RandomFavoritesVencord\Vencord` ;
-- installe ou met à jour Vencord depuis son dépôt officiel ;
-- installe ou met à jour RandomFavorites depuis ce dépôt ;
-- refuse d'écraser des modifications Git locales ;
-- compile, injecte Discord Stable et vérifie le chemin du patch ;
-- écrit un journal et un état de la dernière installation réussie.
+- **Clic gauche** : envoie un élément aléatoire.
+- **Clic droit** : permet de choisir GIF, emote, sticker et le mode d'envoi.
 
-Pour toutes les mises à jour suivantes, double-clique simplement sur :
+Deux modes sont disponibles :
 
-```text
-%LOCALAPPDATA%\RandomFavoritesVencord\Update RandomFavorites.cmd
-```
+- **Un élément de chaque type coché** : envoie par exemple un GIF, une emote et un sticker.
+- **Un seul élément** : choisit un seul type parmi ceux cochés, puis un élément de ce type.
 
-Le même programme met alors à jour **Vencord et RandomFavorites**, réinstalle
-les dépendances exactes, recompile et réinjecte la build. Il peut donc réparer
-automatiquement l'installation après une mise à jour de Discord qui aurait
-retiré le patch.
+Avec la **répartition équitable**, chaque type possède la même chance :
 
-Options utiles depuis un terminal :
+- GIF + emote + sticker : environ `33 %` chacun.
+- GIF + sticker : `50 %` chacun.
 
-```powershell
-# Installer une autre branche Discord
-& ".\Installer RandomFavorites.cmd" -Branch ptb
-& ".\Installer RandomFavorites.cmd" -Branch canary
+Tu peux aussi utiliser :
 
-# Choisir un autre dossier persistant
-& ".\Installer RandomFavorites.cmd" -InstallRoot "D:\RandomFavoritesVencord"
-
-# Compiler sans toucher à Discord
-& ".\Installer RandomFavorites.cmd" -SkipInject
-
-# Afficher les commandes et sorties techniques
-& ".\Installer RandomFavorites.cmd" -ShowDetails
-```
-
-Prérequis pour l'installation entièrement automatique : Windows 10/11
-64 bits, connexion Internet et Discord Desktop. Git, Node.js et pnpm ne sont
-pas des prérequis manuels. Le gestionnaire n'installe aucun de ces outils dans
-Windows : lorsqu'ils manquent, il utilise des archives portables dans
-`%LOCALAPPDATA%\RandomFavoritesVencord\.bootstrap`, puis supprime ce dossier.
-
-Les sources Vencord, RandomFavorites, les dépendances de compilation et le
-bundle `dist` restent dans le dossier géré. Elles sont nécessaires pour
-recompiler rapidement lors d'une future mise à jour. Rien n'est ajouté au
-`PATH` permanent de Windows.
-
-Le gestionnaire est un script lisible. Il télécharge MinGit depuis le projet
-officiel Git for Windows, Node.js depuis `nodejs.org`, Vencord depuis son dépôt
-officiel et RandomFavorites depuis le dépôt Yuzuctus.
-
-### Organisation du ZIP
-
-Le fichier à lancer est volontairement placé à la racine :
-
-```text
-RandomFavorites/
-├─ Plugin RandomFavorites/       code du plugin
-├─ Installer RandomFavorites.cmd
-├─ README.md
-├─ LICENSE
-├─ index.tsx                     passerelle de compatibilité Vencord
-└─ scripts/                      moteur interne de l'installateur
-```
-
-Le petit `index.tsx` racine est nécessaire car Vencord ne recherche les
-userplugins qu'à un niveau de profondeur. Il ne contient aucune logique :
-il redirige simplement Vencord vers le code rangé dans
-`Plugin RandomFavorites`.
-
-### Installation manuelle
-
-1. Installe Vencord depuis les sources en suivant les guides officiels :
-   [installation depuis les sources](https://docs.vencord.dev/installing/) et
-   [installation des plugins personnalisés](https://docs.vencord.dev/installing/custom-plugins/).
-2. Ouvre le dossier `Vencord/src`.
-3. Crée `userplugins` s'il n'existe pas.
-4. Clone ce dépôt dans un dossier directement sous `userplugins` :
-
-   ```powershell
-   cd C:\chemin\vers\Vencord\src\userplugins
-   git clone https://github.com/Yuzuctus/RandomFavorites.git randomFavorites
-   ```
-
-5. Depuis la racine de Vencord :
-
-   ```powershell
-   pnpm install --frozen-lockfile
-   pnpm build
-   pnpm inject
-   ```
-
-6. Redémarre complètement Discord.
-7. Dans `Paramètres utilisateur > Vencord > Plugins`, active **RandomFavorites**.
-
-La structure finale doit être exactement :
-
-```text
-Vencord/
-└─ src/
-   └─ userplugins/
-      └─ randomFavorites/
-         ├─ index.tsx
-         └─ Plugin RandomFavorites/
-            ├─ index.tsx
-            ├─ messageFormatting.ts
-            ├─ shuffleBag.ts
-            └─ uniformRandom.ts
-```
-
-Pour mettre le plugin à jour plus tard :
-
-```powershell
-cd C:\chemin\vers\Vencord\src\userplugins\randomFavorites
-git pull
-cd ..\..\..
-pnpm build
-```
-
-L'installeur officiel de Vencord n'inclut pas ce dépôt tiers. Le gestionnaire
-automatique résout ce point en préparant une build Vencord persistante dans
-laquelle RandomFavorites est présent au moment de la compilation.
+- `/random-favorite`
+- `/random-gif`
+- `/random-emoji`
+- `/random-sticker`
+- `/random-favorite-stats`
 
 ## Réglages
 
-- **Chat bar button / Bouton dans la barre de chat** : affiche ou masque le bouton dé.
-- **Mask random GIFs / Masquer les GIFs aléatoires** : active ou désactive le spoiler. Activé par défaut.
-- **Show the GIF message / Afficher le texte des GIFs** : affiche ou retire le préfixe.
-- **GIF message / Texte des GIFs** : personnalise `Gif random :`.
-- **One item from each selected type / Un élément de chaque type coché** :
-  - activé, le clic gauche envoie un élément de chaque catégorie cochée ;
-  - désactivé, le clic gauche n'envoie qu'un élément selon le réglage de répartition.
-- **GIFs on left click / GIFs au clic gauche** : inclut un GIF favori dans chaque clic gauche. Activé par défaut.
-- **Emojis on left click / Emotes au clic gauche** : inclut une emote de la liste configurée. Activé par défaut.
-- **Stickers on left click / Stickers au clic gauche** : inclut un sticker de la liste configurée. Activé par défaut.
-- **Mixed-mode type distribution / Répartition des types en mode mixte** : concerne le mode unique du clic gauche et la commande `/random-favorite` sans filtre :
-  - **Répartition équitable** : chaque type coché et utilisable a la même chance ; le plugin choisit ensuite un élément dans le type tiré ;
-  - **Totalement aléatoire** : tous les éléments des types cochés sont réunis, puis un élément est tiré uniformément. Un type qui contient davantage d'éléments devient donc plus probable.
-- **Emoji source / Source des emotes** : toutes les emotes utilisables par défaut, ou seulement les favorites.
-- **Sticker source / Source des stickers** : tous les stickers utilisables par défaut, ou seulement les favoris.
-- **Avoid repeats / Éviter les répétitions** : épuise un ordre mélangé avant de recommencer.
+Ouvre `Paramètres > Vencord > Plugins`, cherche **RandomFavorites**, puis clique sur la roue dentée.
 
-Le bouton peut aussi être masqué via le menu contextuel de la barre de chat, dans les réglages globaux des boutons Vencord.
+Tu peux notamment :
 
-Le clic droit sur le bouton dé ouvre le mode d'envoi et les trois types sous
-forme de cases à cocher. Lorsque le mode unique est actif, les deux répartitions
-apparaissent aussi directement dans ce menu. Tous ces choix sont sauvegardés
-dans les réglages Vencord et restent donc actifs après avoir fermé le menu ou redémarré Discord.
-Dans le mode multiple, si un type sélectionné n'est pas utilisable dans le
-salon, les autres types sont tout de même envoyés et une seule notification
-récapitule le problème. Dans le mode unique, les types vides sont ignorés tant
-qu'au moins un des types cochés contient un élément utilisable.
+- masquer les GIFs aléatoires avec un spoiler ;
+- afficher, modifier ou retirer le texte `Gif random :` ;
+- choisir les types utilisés par le clic gauche ;
+- choisir entre répartition équitable et tirage totalement aléatoire ;
+- utiliser toutes les emotes et stickers disponibles ou seulement tes favoris ;
+- éviter les répétitions.
 
-Pour ouvrir ces options : `Paramètres utilisateur > Vencord > Plugins`, cherche
-**RandomFavorites**, puis clique sur la roue dentée du plugin.
+Les réglages sont en français lorsque Discord est en français, sinon ils sont affichés en anglais.
 
-Les noms, descriptions et choix des réglages sont affichés en français lorsque
-Discord utilise le français, et en anglais dans les autres langues. Un changement
-de langue peut nécessiter un redémarrage de Discord pour reconstruire la fenêtre
-des réglages.
+## Mise à jour
 
-## Notes de compatibilité
+Pour mettre à jour **RandomFavorites et Vencord** :
 
-- Conçu et compilé contre Vencord `1.15.0`, commit `83b74e2305cb4718b3d55af5fbd93ade50d2bb50` du 26 juillet 2026.
-- Le plugin utilise le `FrecencyUserSettings` natif de Discord, qui contient aujourd'hui `favoriteGifs`, `favoriteEmojis` et `favoriteStickers`.
-- Un favori peut être enregistré mais inutilisable : serveur quitté, emote supprimée, permission externe absente, sticker indisponible ou accès Nitro manquant. Le plugin l'ignore sans bloquer les autres tirages.
-- Les anciens GIFs Discord reposant sur des URL CDN signées peuvent expirer côté Discord.
-- Les mods clients et userplugins sont à utiliser en connaissance des règles de Discord. Vencord ne fournit pas de support officiel pour les plugins tiers.
+1. Appuie sur `Windows + R`.
+2. Colle :
 
-## Développement
+   ```text
+   %LOCALAPPDATA%\RandomFavoritesVencord
+   ```
 
-Ce dépôt est volontairement un dossier de plugin Vencord directement clonable, et non un paquet npm autonome. Pour vérifier une modification :
+3. Double-clique sur **`Update RandomFavorites.cmd`**.
 
-```powershell
-# depuis la racine du checkout Vencord qui contient ce plugin
-pnpm testTsc
-pnpm eslint src/userplugins/randomFavorites
-pnpm exec tsx --test "src/userplugins/randomFavorites/**/*.test.ts"
-pnpm build
-```
+Tu peux aussi relancer cette mise à jour si une mise à jour de Discord retire Vencord.
 
-Le code est sous licence `GPL-3.0-or-later`, comme Vencord.
+## En cas de problème
 
-Ce projet est un dépôt indépendant publié par **Yuzuctus**. Il ne demande
-aucune contribution, pull request ou publication dans le dépôt officiel de
-Vencord.
+- Vérifie que **RandomFavorites** est activé dans les plugins Vencord.
+- Relance `Update RandomFavorites.cmd`.
+- Si l'installation affiche une erreur, garde une capture de la fenêtre.
+- Le chemin du journal de diagnostic est affiché en bas de la fenêtre.
+
+## Sécurité
+
+- Aucun token Discord n'est lu ou enregistré.
+- Aucune télémétrie n'est ajoutée.
+- Aucune liste de favoris externe n'est créée.
+- Les outils de compilation manquants sont utilisés temporairement puis supprimés.
+- Rien n'est envoyé sans un clic sur le bouton ou une commande.
+
+RandomFavorites est un plugin tiers indépendant publié par **Yuzuctus**. Il ne fait pas partie du dépôt officiel de Vencord.
+
+Licence : `GPL-3.0-or-later`.
