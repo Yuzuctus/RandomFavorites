@@ -428,9 +428,9 @@ function Render-LiveTui {
         Write-TuiLine 20 ("  " + $footer) $footerColor
 
         $lastLine = if ($script:TuiOutcome -eq "success" -and $script:UpdateLauncherPath) {
-            (Get-UiText "Next update: " "Prochaine mise a jour : ") + (Get-TuiFriendlyPath $script:UpdateLauncherPath)
+            (Get-UiText "Update: " "MAJ : ") + (Get-TuiFriendlyPath $script:UpdateLauncherPath)
         } else {
-            (Get-UiText "Diagnostic log: " "Journal de diagnostic : ") + (Get-TuiFriendlyPath $script:TechnicalLogPath)
+            (Get-UiText "Log: " "Log : ") + (Get-TuiFriendlyPath $script:TechnicalLogPath)
         }
         Write-TuiLine -Row 21 -Text ("  " + $lastLine) -Color DarkGray
         Write-TuiLine 22 $border $borderColor
