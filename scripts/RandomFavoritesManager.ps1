@@ -20,7 +20,11 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
+$script:OriginalProgressPreference = $ProgressPreference
+$ProgressPreference = "SilentlyContinue"
 [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+Add-Type -AssemblyName System.Net.Http
+Add-Type -AssemblyName System.IO.Compression.FileSystem
 
 $script:TranscriptStarted = $false
 $script:LogPath = $null
@@ -38,6 +42,20 @@ $script:CurrentStage = $null
 $script:Completed = $false
 $script:UpdateLauncherPath = $null
 $script:InstalledToDiscord = $false
+$script:TuiEnabled = $false
+$script:TuiInitialized = $false
+$script:TuiStages = @()
+$script:TuiCurrentStage = 0
+$script:TuiStageProgress = 0.0
+$script:TuiDetail = ""
+$script:TuiOutcome = "running"
+$script:TuiTop = 0
+$script:TuiHeight = 23
+$script:TuiSpinnerIndex = 0
+$script:TuiLastRender = [DateTime]::MinValue
+$script:TuiOriginalCursorVisible = $true
+$script:TuiOriginalForegroundColor = [ConsoleColor]::Gray
+$script:TuiOriginalBackgroundColor = [ConsoleColor]::Black
 
 function Get-UiText {
     param(
@@ -73,11 +91,452 @@ function Write-TechnicalLog {
     Add-Content -LiteralPath $script:TechnicalLogPath -Value "[$timestamp] $Message" -Encoding UTF8
 }
 
+function New-TuiStages {
+    return @(
+        [PSCustomObject]@{
+            Number = 1
+            Title = Get-UiText "Preparing the installer" "Preparation de l'installateur"
+            Explanation = Get-UiText "Checking the tools needed for a safe installation." "Verification des outils necessaires a une installation sure."
+            Weight = 10
+            State = "Pending"
+            StartedAt = $null
+            Timer = $null
+            Elapsed = [TimeSpan]::Zero
+        },
+        [PSCustomObject]@{
+            Number = 2
+            Title = Get-UiText "Preparing Vencord" "Preparation de Vencord"
+            Explanation = Get-UiText "Downloading or updating the official Vencord source code." "Telechargement ou mise a jour du code officiel de Vencord."
+            Weight = 15
+            State = "Pending"
+            StartedAt = $null
+            Timer = $null
+            Elapsed = [TimeSpan]::Zero
+        },
+        [PSCustomObject]@{
+            Number = 3
+            Title = Get-UiText "Preparing build tools" "Preparation des outils de compilation"
+            Explanation = Get-UiText "Reusing compatible tools or preparing temporary portable copies." "Reutilisation des outils compatibles ou preparation de copies portables temporaires."
+            Weight = 15
+            State = "Pending"
+            StartedAt = $null
+            Timer = $null
+            Elapsed = [TimeSpan]::Zero
+        },
+        [PSCustomObject]@{
+            Number = 4
+            Title = Get-UiText "Updating RandomFavorites" "Mise a jour de RandomFavorites"
+            Explanation = Get-UiText "Fetching the newest public version of the plugin." "Recuperation de la derniere version publique du plugin."
+            Weight = 10
+            State = "Pending"
+            StartedAt = $null
+            Timer = $null
+            Elapsed = [TimeSpan]::Zero
+        },
+        [PSCustomObject]@{
+            Number = 5
+            Title = Get-UiText "Preparing dependencies" "Preparation des dependances"
+            Explanation = Get-UiText "Checking the exact files required to build Vencord." "Verification des fichiers exacts necessaires a la compilation de Vencord."
+            Weight = 20
+            State = "Pending"
+            StartedAt = $null
+            Timer = $null
+            Elapsed = [TimeSpan]::Zero
+        },
+        [PSCustomObject]@{
+            Number = 6
+            Title = Get-UiText "Building the custom Discord mod" "Compilation du mod Discord personnalise"
+            Explanation = Get-UiText "Creating Vencord with RandomFavorites included." "Creation de Vencord avec RandomFavorites inclus."
+            Weight = 20
+            State = "Pending"
+            StartedAt = $null
+            Timer = $null
+            Elapsed = [TimeSpan]::Zero
+        },
+        [PSCustomObject]@{
+            Number = 7
+            Title = Get-UiText "Installing into Discord" "Installation dans Discord"
+            Explanation = Get-UiText "Discord closes only now, then restarts automatically." "Discord se ferme seulement maintenant, puis redemarre automatiquement."
+            Weight = 10
+            State = "Pending"
+            StartedAt = $null
+            Timer = $null
+            Elapsed = [TimeSpan]::Zero
+        }
+    )
+}
+
+function Limit-TuiText {
+    param(
+        [AllowNull()]
+        [string]$Text,
+        [int]$Width
+    )
+
+    if ($Width -le 0) {
+        return ""
+    }
+
+    $singleLine = ([string]$Text) -replace "[\r\n]+", " "
+    if ($singleLine.Length -le $Width) {
+        return $singleLine
+    }
+    if ($Width -le 3) {
+        return $singleLine.Substring(0, $Width)
+    }
+
+    return $singleLine.Substring(0, $Width - 3) + "..."
+}
+
+function Get-TuiFriendlyPath {
+    param([AllowNull()][string]$Path)
+
+    if ([string]::IsNullOrWhiteSpace($Path)) {
+        return ""
+    }
+
+    $resolvedLocalAppData = [IO.Path]::GetFullPath($env:LOCALAPPDATA).TrimEnd("\")
+    $resolvedPath = [IO.Path]::GetFullPath($Path)
+    if ($resolvedPath.StartsWith($resolvedLocalAppData + "\", [StringComparison]::OrdinalIgnoreCase)) {
+        return "%LOCALAPPDATA%" + $resolvedPath.Substring($resolvedLocalAppData.Length)
+    }
+
+    return $resolvedPath
+}
+
+function Format-TuiColumns {
+    param(
+        [string]$Left,
+        [string]$Right,
+        [int]$Width
+    )
+
+    if ($Width -le 0) {
+        return ""
+    }
+
+    $safeRight = Limit-TuiText $Right $Width
+    $leftWidth = $Width - $safeRight.Length
+    if ($safeRight.Length -gt 0) {
+        $leftWidth--
+    }
+
+    $safeLeft = Limit-TuiText $Left ([Math]::Max(0, $leftWidth))
+    $spacing = [Math]::Max(0, $Width - $safeLeft.Length - $safeRight.Length)
+    return $safeLeft + (" " * $spacing) + $safeRight
+}
+
+function Format-TuiBoxLine {
+    param(
+        [string]$Text,
+        [int]$Width
+    )
+
+    $innerWidth = [Math]::Max(0, $Width - 4)
+    $content = (Limit-TuiText $Text $innerWidth).PadRight($innerWidth)
+    return "| $content |"
+}
+
+function Get-TuiWidth {
+    $availableWidth = [Math]::Max(1, [Console]::BufferWidth - 1)
+    return [Math]::Min(96, $availableWidth)
+}
+
+function Write-TuiLine {
+    param(
+        [int]$Row,
+        [string]$Text,
+        [ConsoleColor]$Color = [ConsoleColor]::Gray
+    )
+
+    $bufferWidth = [Math]::Max(1, [Console]::BufferWidth - 1)
+    $line = (Limit-TuiText $Text $bufferWidth).PadRight($bufferWidth)
+
+    [Console]::SetCursorPosition(0, $script:TuiTop + $Row)
+    [Console]::ForegroundColor = $Color
+    [Console]::BackgroundColor = [ConsoleColor]::Black
+    [Console]::Write($line)
+}
+
+function Get-TuiOverallProgress {
+    $progress = 0.0
+
+    foreach ($stage in $script:TuiStages) {
+        if ($stage.State -eq "Completed") {
+            $progress += [double]$stage.Weight
+        } elseif ($stage.State -eq "Active" -or $stage.State -eq "Failed") {
+            $progress += [double]$stage.Weight * $script:TuiStageProgress
+        }
+    }
+
+    return [Math]::Max(0.0, [Math]::Min(100.0, $progress))
+}
+
+function Render-LiveTui {
+    param([switch]$Force)
+
+    if (-not $script:TuiEnabled -or -not $script:TuiInitialized) {
+        return
+    }
+
+    $now = [DateTime]::Now
+    if (-not $Force -and ($now - $script:TuiLastRender).TotalMilliseconds -lt 180) {
+        return
+    }
+    $script:TuiLastRender = $now
+
+    try {
+        $width = Get-TuiWidth
+        $innerWidth = [Math]::Max(1, $width - 4)
+        $border = "+" + ("-" * [Math]::Max(0, $width - 2)) + "+"
+        $outcomeLabel = switch ($script:TuiOutcome) {
+            "success" { Get-UiText "COMPLETED" "TERMINEE" }
+            "error" { Get-UiText "FAILED" "ECHEC" }
+            default { Get-UiText "INSTALLATION" "INSTALLATION" }
+        }
+        $borderColor = switch ($script:TuiOutcome) {
+            "success" { [ConsoleColor]::Green }
+            "error" { [ConsoleColor]::Red }
+            default { [ConsoleColor]::DarkCyan }
+        }
+
+        $header = Format-TuiColumns "RANDOMFAVORITES" $outcomeLabel $innerWidth
+        $subtitle = Format-TuiColumns `
+            (Get-UiText "Vencord installation and update" "Installation et mise a jour de Vencord") `
+            ("Discord " + $Branch) `
+            $innerWidth
+
+        Write-TuiLine 0 $border $borderColor
+        Write-TuiLine -Row 1 -Text (Format-TuiBoxLine $header $width) -Color Cyan
+        Write-TuiLine -Row 2 -Text (Format-TuiBoxLine $subtitle $width) -Color DarkGray
+        Write-TuiLine 3 $border $borderColor
+        Write-TuiLine 4 ""
+        Write-TuiLine -Row 5 -Text ("  " + (Get-UiText "OVERALL PROGRESS" "PROGRESSION GLOBALE")) -Color White
+
+        $overallProgress = Get-TuiOverallProgress
+        $overallPercent = [int][Math]::Floor($overallProgress)
+        $barWidth = [Math]::Max(16, [Math]::Min(52, $width - 27))
+        $filled = [Math]::Min($barWidth, [int][Math]::Floor(($overallProgress / 100.0) * $barWidth))
+        $bar = ("#" * $filled) + ("-" * ($barWidth - $filled))
+        $totalElapsed = Format-Elapsed $script:RunTimer.Elapsed
+        $progressLine = "  [{0}] {1,3}%   {2} {3}" -f `
+            $bar,
+            $overallPercent,
+            (Get-UiText "Total" "Total"),
+            $totalElapsed
+        Write-TuiLine -Row 6 -Text $progressLine -Color Cyan
+        Write-TuiLine 7 ""
+
+        for ($index = 0; $index -lt $script:TuiStages.Count; $index++) {
+            $stage = $script:TuiStages[$index]
+            $elapsed = $stage.Elapsed
+            if ($stage.State -eq "Active" -and $null -ne $stage.Timer) {
+                $elapsed = $stage.Timer.Elapsed
+            }
+
+            $icon = "[ ]"
+            $right = ""
+            $color = [ConsoleColor]::DarkGray
+
+            switch ($stage.State) {
+                "Active" {
+                    $icon = "[>]"
+                    $right = "{0,3}%  {1}" -f ([int][Math]::Floor($script:TuiStageProgress * 100)), (Format-Elapsed $elapsed)
+                    $color = [ConsoleColor]::White
+                }
+                "Completed" {
+                    $icon = "[OK]"
+                    $right = Format-Elapsed $elapsed
+                    $color = [ConsoleColor]::Green
+                }
+                "Failed" {
+                    $icon = "[!!]"
+                    $right = Format-Elapsed $elapsed
+                    $color = [ConsoleColor]::Red
+                }
+            }
+
+            $left = "  $icon $($stage.Number). $($stage.Title)"
+            $stageLine = Format-TuiColumns $left $right $width
+            Write-TuiLine (8 + $index) $stageLine $color
+        }
+
+        Write-TuiLine 15 ""
+        $activityHeading = switch ($script:TuiOutcome) {
+            "success" { Get-UiText "RESULT" "RESULTAT" }
+            "error" { Get-UiText "ERROR" "ERREUR" }
+            default { Get-UiText "CURRENT ACTIVITY" "ACTIVITE EN COURS" }
+        }
+        Write-TuiLine -Row 16 -Text ("  " + $activityHeading) -Color White
+        $detail = if ([string]::IsNullOrWhiteSpace($script:TuiDetail)) {
+            Get-UiText "Starting..." "Demarrage..."
+        } else {
+            $script:TuiDetail
+        }
+        $detailColor = if ($script:TuiOutcome -eq "error") {
+            [ConsoleColor]::Red
+        } else {
+            [ConsoleColor]::Cyan
+        }
+        Write-TuiLine 17 ("  > " + $detail) $detailColor
+
+        if ($script:TuiOutcome -eq "success") {
+            $liveLine = Format-TuiColumns `
+                ("  [OK] " + (Get-UiText "You can close this window." "Tu peux fermer cette fenetre.")) `
+                ((Get-UiText "Total" "Total") + " " + (Format-Elapsed $script:RunTimer.Elapsed)) `
+                $width
+            Write-TuiLine -Row 18 -Text $liveLine -Color Green
+        } elseif ($script:TuiOutcome -eq "error") {
+            $liveLine = Format-TuiColumns `
+                ("  [!!] " + (Get-UiText "Installation stopped." "Installation interrompue.")) `
+                ("$(Get-UiText "Step" "Etape") $script:TuiCurrentStage/$($script:TuiStages.Count)") `
+                $width
+            Write-TuiLine -Row 18 -Text $liveLine -Color Red
+        } else {
+            $spinnerFrames = @("|", "/", "-", "\")
+            $spinner = $spinnerFrames[$script:TuiSpinnerIndex % $spinnerFrames.Count]
+            $stageCounter = if ($script:TuiCurrentStage -gt 0) {
+                "$(Get-UiText "Step" "Etape") $script:TuiCurrentStage/$($script:TuiStages.Count)"
+            } else {
+                Get-UiText "Initialising" "Initialisation"
+            }
+            $liveLine = Format-TuiColumns ("  $spinner  " + (Get-UiText "Please wait" "Patiente...")) $stageCounter $width
+            Write-TuiLine -Row 18 -Text $liveLine -Color DarkGray
+        }
+        Write-TuiLine 19 ""
+
+        $footer = switch ($script:TuiOutcome) {
+            "success" {
+                if ($script:InstalledToDiscord) {
+                    Get-UiText "Discord is ready with RandomFavorites." "Discord est pret avec RandomFavorites."
+                } else {
+                    Get-UiText "Build ready. Discord was not modified." "Compilation prete. Discord n'a pas ete modifie."
+                }
+            }
+            "error" {
+                Get-UiText "See the diagnostic log below. Discord was only closed during the final stage." "Consulte le journal ci-dessous. Discord est ferme uniquement a la derniere etape."
+            }
+            default {
+                Get-UiText "Discord stays open until the final installation stage." "Discord reste ouvert jusqu'a l'installation finale."
+            }
+        }
+        $footerColor = if ($script:TuiOutcome -eq "error") {
+            [ConsoleColor]::Yellow
+        } else {
+            [ConsoleColor]::DarkGray
+        }
+        Write-TuiLine 20 ("  " + $footer) $footerColor
+
+        $lastLine = if ($script:TuiOutcome -eq "success" -and $script:UpdateLauncherPath) {
+            (Get-UiText "Next update: " "Prochaine mise a jour : ") + (Get-TuiFriendlyPath $script:UpdateLauncherPath)
+        } else {
+            (Get-UiText "Diagnostic log: " "Journal de diagnostic : ") + (Get-TuiFriendlyPath $script:TechnicalLogPath)
+        }
+        Write-TuiLine -Row 21 -Text ("  " + $lastLine) -Color DarkGray
+        Write-TuiLine 22 $border $borderColor
+    } catch {
+        Write-TechnicalLog "Live TUI rendering failed: $($_.Exception.Message)"
+        $script:TuiEnabled = $false
+        try {
+            [Console]::CursorVisible = $script:TuiOriginalCursorVisible
+            [Console]::ForegroundColor = $script:TuiOriginalForegroundColor
+            [Console]::BackgroundColor = $script:TuiOriginalBackgroundColor
+        } catch {
+            # The console is no longer available.
+        }
+    }
+}
+
+function Initialize-LiveTui {
+    if ($ShowDetails) {
+        return
+    }
+
+    try {
+        if ([Console]::IsOutputRedirected -or $Host.Name -ne "ConsoleHost" -or [Console]::BufferWidth -lt 70) {
+            return
+        }
+
+        $script:TuiOriginalCursorVisible = [Console]::CursorVisible
+        $script:TuiOriginalForegroundColor = [Console]::ForegroundColor
+        $script:TuiOriginalBackgroundColor = [Console]::BackgroundColor
+        Clear-Host
+        $script:TuiTop = [Console]::CursorTop
+
+        $requiredBufferHeight = $script:TuiTop + $script:TuiHeight + 2
+        if ([Console]::BufferHeight -lt $requiredBufferHeight) {
+            [Console]::BufferHeight = $requiredBufferHeight
+        }
+
+        [Console]::CursorVisible = $false
+        $script:TuiEnabled = $true
+        $script:TuiInitialized = $true
+        Render-LiveTui -Force
+    } catch {
+        $script:TuiEnabled = $false
+        $script:TuiInitialized = $false
+        Write-TechnicalLog "Live TUI is unavailable: $($_.Exception.Message)"
+    }
+}
+
+function Stop-LiveTui {
+    if (-not $script:TuiInitialized) {
+        return
+    }
+
+    try {
+        if ($script:TuiEnabled) {
+            Render-LiveTui -Force
+        }
+        $targetRow = [Math]::Min([Console]::BufferHeight - 1, $script:TuiTop + $script:TuiHeight)
+        [Console]::SetCursorPosition(0, $targetRow)
+        [Console]::ForegroundColor = $script:TuiOriginalForegroundColor
+        [Console]::BackgroundColor = $script:TuiOriginalBackgroundColor
+        [Console]::CursorVisible = $script:TuiOriginalCursorVisible
+        [Console]::WriteLine("")
+    } catch {
+        Write-TechnicalLog "Could not restore the console after the live TUI: $($_.Exception.Message)"
+    } finally {
+        $script:TuiEnabled = $false
+        $script:TuiInitialized = $false
+    }
+}
+
+function Update-TuiActivity {
+    param(
+        [AllowNull()]
+        [string]$Detail,
+        [double]$Progress = -1,
+        [switch]$Force
+    )
+
+    if (-not [string]::IsNullOrWhiteSpace($Detail)) {
+        $script:TuiDetail = $Detail
+    }
+
+    if ($script:TuiCurrentStage -gt 0) {
+        if ($Progress -ge 0) {
+            $script:TuiStageProgress = [Math]::Max(
+                $script:TuiStageProgress,
+                [Math]::Min(0.95, $Progress)
+            )
+        } elseif ($script:TuiStageProgress -lt 0.90) {
+            $remaining = 0.90 - $script:TuiStageProgress
+            $script:TuiStageProgress += [Math]::Max(0.001, $remaining * 0.02)
+        }
+    }
+
+    $script:TuiSpinnerIndex++
+    Render-LiveTui -Force:$Force
+}
+
 function Write-Banner {
     Write-Host ""
     Write-Host "  +----------------------------------------------------------+" -ForegroundColor DarkCyan
     Write-Host "  |                    RANDOMFAVORITES                       |" -ForegroundColor Cyan
-    Write-Host "  |  $(Get-UiText "Simple Vencord installation and update" "Installation et mise a jour simple de Vencord")".PadRight(59).Substring(0, 59) -NoNewline -ForegroundColor White
+    $subtitle = Get-UiText "Simple Vencord installation and update" "Installation et mise a jour simple de Vencord"
+    $subtitleLine = ("  |  " + $subtitle).PadRight(61).Substring(0, 61)
+    Write-Host $subtitleLine -NoNewline -ForegroundColor White
     Write-Host "|" -ForegroundColor DarkCyan
     Write-Host "  +----------------------------------------------------------+" -ForegroundColor DarkCyan
     Write-Host ""
@@ -91,17 +550,29 @@ function Write-Step {
         [string]$Explanation
     )
 
-    $percent = [Math]::Floor(($Number / $Total) * 100)
-    $filled = [Math]::Floor(($Number / $Total) * 24)
-    $bar = ("#" * $filled).PadRight(24, "-")
     $timer = [Diagnostics.Stopwatch]::StartNew()
-
-    Write-Host ""
-    Write-Host "  [$bar] $percent%  $(Get-UiText "Step" "Etape") $Number/$Total" -ForegroundColor Cyan
-    Write-Host "  $Message" -ForegroundColor White
-    Write-Host "  $Explanation" -ForegroundColor DarkGray
     Write-TechnicalLog "STAGE $Number/$Total - $Message - $Explanation"
     $script:CurrentStage = $Message
+    $script:TuiCurrentStage = $Number
+    $script:TuiStageProgress = 0.02
+    $script:TuiDetail = $Explanation
+
+    if ($script:TuiEnabled -and $Number -le $script:TuiStages.Count) {
+        $stage = $script:TuiStages[$Number - 1]
+        $stage.State = "Active"
+        $stage.StartedAt = [DateTime]::Now
+        $stage.Timer = $timer
+        Update-TuiActivity $Explanation -Progress 0.02 -Force
+    } else {
+        $percent = [Math]::Floor((($Number - 1) / $Total) * 100)
+        $filled = [Math]::Floor((($Number - 1) / $Total) * 24)
+        $bar = ("#" * $filled).PadRight(24, "-")
+
+        Write-Host ""
+        Write-Host "  [$bar] $percent%  $(Get-UiText "Step" "Etape") $Number/$Total" -ForegroundColor Cyan
+        Write-Host "  $Message" -ForegroundColor White
+        Write-Host "  $Explanation" -ForegroundColor DarkGray
+    }
 
     return $timer
 }
@@ -110,7 +581,32 @@ function Complete-Step {
     param([Diagnostics.Stopwatch]$Timer)
 
     $Timer.Stop()
-    Write-Host "  [OK] $(Get-UiText "Completed in" "Termine en") $(Format-Elapsed $Timer.Elapsed)" -ForegroundColor Green
+    if ($script:TuiEnabled -and $script:TuiCurrentStage -gt 0) {
+        $stage = $script:TuiStages[$script:TuiCurrentStage - 1]
+        $stage.State = "Completed"
+        $stage.Elapsed = $Timer.Elapsed
+        $script:TuiStageProgress = 1.0
+        Render-LiveTui -Force
+    } else {
+        Write-Host "  [OK] $(Get-UiText "Completed in" "Termine en") $(Format-Elapsed $Timer.Elapsed)" -ForegroundColor Green
+    }
+}
+
+function Set-LiveTuiFailure {
+    param([string]$Message)
+
+    $script:TuiOutcome = "error"
+    $script:TuiDetail = (Get-UiText "Error: " "Erreur : ") + $Message
+
+    if ($script:TuiCurrentStage -gt 0 -and $script:TuiCurrentStage -le $script:TuiStages.Count) {
+        $stage = $script:TuiStages[$script:TuiCurrentStage - 1]
+        $stage.State = "Failed"
+        if ($null -ne $stage.Timer) {
+            $stage.Elapsed = $stage.Timer.Elapsed
+        }
+    }
+
+    Render-LiveTui -Force
 }
 
 function Write-FinalSuccess {
@@ -118,6 +614,19 @@ function Write-FinalSuccess {
         [string]$UpdateLauncher,
         [bool]$InstalledToDiscord
     )
+
+    if ($script:TuiEnabled) {
+        $script:TuiOutcome = "success"
+        $script:TuiDetail = if ($InstalledToDiscord) {
+            Get-UiText "Installation completed. Discord has restarted." "Installation terminee. Discord a redemarre."
+        } else {
+            Get-UiText "Build completed. Discord was not modified." "Compilation terminee. Discord n'a pas ete modifie."
+        }
+        $script:UpdateLauncherPath = $UpdateLauncher
+        Render-LiveTui -Force
+        Stop-LiveTui
+        return
+    }
 
     Write-Host ""
     Write-Host "  +----------------------------------------------------------+" -ForegroundColor Green
@@ -158,6 +667,76 @@ function Format-Command {
     return "$FilePath $($formattedArguments -join ' ')"
 }
 
+function ConvertTo-PowerShellSingleQuotedLiteral {
+    param([AllowNull()][string]$Value)
+
+    return "'" + ([string]$Value).Replace("'", "''") + "'"
+}
+
+function Invoke-LiveExternalCommand {
+    param(
+        [string]$FilePath,
+        [string[]]$Arguments,
+        [string]$WorkingDirectory,
+        [string]$CommandLog
+    )
+
+    $fileLiteral = ConvertTo-PowerShellSingleQuotedLiteral $FilePath
+    $logLiteral = ConvertTo-PowerShellSingleQuotedLiteral $CommandLog
+    $argumentLiterals = @($Arguments | ForEach-Object {
+        ConvertTo-PowerShellSingleQuotedLiteral ([string]$_)
+    })
+    $argumentExpression = "@(" + ($argumentLiterals -join ", ") + ")"
+    $workingDirectoryLine = if ($WorkingDirectory) {
+        "Set-Location -LiteralPath $(ConvertTo-PowerShellSingleQuotedLiteral $WorkingDirectory)"
+    } else {
+        ""
+    }
+
+    $childScript = @"
+`$ErrorActionPreference = "Continue"
+try {
+    $workingDirectoryLine
+    `$commandArguments = $argumentExpression
+    & $fileLiteral @commandArguments *> $logLiteral
+    `$commandExitCode = `$LASTEXITCODE
+    if (`$null -eq `$commandExitCode) {
+        `$commandExitCode = 1
+    }
+    exit `$commandExitCode
+} catch {
+    (`$_ | Out-String) | Add-Content -LiteralPath $logLiteral -Encoding UTF8
+    exit 1
+}
+"@
+
+    $encodedCommand = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($childScript))
+    $processStartInfo = New-Object Diagnostics.ProcessStartInfo
+    $processStartInfo.FileName = Join-Path $PSHOME "powershell.exe"
+    $processStartInfo.Arguments = "-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand $encodedCommand"
+    $processStartInfo.UseShellExecute = $false
+    $processStartInfo.CreateNoWindow = $true
+    $processStartInfo.WindowStyle = [Diagnostics.ProcessWindowStyle]::Hidden
+
+    $process = New-Object Diagnostics.Process
+    $process.StartInfo = $processStartInfo
+
+    try {
+        if (-not $process.Start()) {
+            throw "The background command process could not be started."
+        }
+
+        while (-not $process.HasExited) {
+            Update-TuiActivity $script:TuiDetail
+            [Threading.Thread]::Sleep(120)
+        }
+        $process.WaitForExit()
+        return [int]$process.ExitCode
+    } finally {
+        $process.Dispose()
+    }
+}
+
 function Invoke-External {
     param(
         [string]$FilePath,
@@ -176,14 +755,19 @@ function Invoke-External {
     }
 
     try {
-        $previousErrorPreference = $ErrorActionPreference
-        $ErrorActionPreference = "Continue"
-        try {
-            & $FilePath @Arguments *> $commandLog
-        } finally {
-            $ErrorActionPreference = $previousErrorPreference
+        if ($script:TuiEnabled) {
+            $exitCode = Invoke-LiveExternalCommand $FilePath $Arguments $WorkingDirectory $commandLog
+        } else {
+            $previousErrorPreference = $ErrorActionPreference
+            $ErrorActionPreference = "Continue"
+            try {
+                & $FilePath @Arguments *> $commandLog
+            } finally {
+                $ErrorActionPreference = $previousErrorPreference
+            }
+            $exitCode = $LASTEXITCODE
         }
-        $exitCode = $LASTEXITCODE
+
         $output = if (Test-Path -LiteralPath $commandLog) {
             Get-Content -LiteralPath $commandLog -Raw -ErrorAction SilentlyContinue
         } else {
@@ -283,14 +867,179 @@ function Get-WindowsArchitecture {
     }
 }
 
+function New-RandomFavoritesHttpClient {
+    $client = New-Object Net.Http.HttpClient
+    $client.Timeout = [TimeSpan]::FromMinutes(30)
+    $null = $client.DefaultRequestHeaders.TryAddWithoutValidation(
+        "User-Agent",
+        "RandomFavoritesManager/1.0"
+    )
+    return $client
+}
+
+function Wait-HttpTask {
+    param(
+        [Threading.Tasks.Task]$Task,
+        [string]$Activity
+    )
+
+    while (-not $Task.IsCompleted) {
+        Update-TuiActivity $Activity
+        [Threading.Thread]::Sleep(120)
+    }
+}
+
+function Invoke-JsonRequest {
+    param(
+        [string]$Uri,
+        [string]$Activity
+    )
+
+    Write-TechnicalLog "JSON REQUEST: $Uri"
+    $client = New-RandomFavoritesHttpClient
+
+    try {
+        $requestTask = $client.GetStringAsync($Uri)
+        Wait-HttpTask $requestTask $Activity
+        $json = $requestTask.GetAwaiter().GetResult()
+        return ($json | ConvertFrom-Json)
+    } finally {
+        $client.Dispose()
+    }
+}
+
+function Format-ByteCount {
+    param([long]$Bytes)
+
+    if ($Bytes -ge 1GB) {
+        return "{0:N1} GB" -f ($Bytes / 1GB)
+    }
+    if ($Bytes -ge 1MB) {
+        return "{0:N1} MB" -f ($Bytes / 1MB)
+    }
+    if ($Bytes -ge 1KB) {
+        return "{0:N1} KB" -f ($Bytes / 1KB)
+    }
+
+    return "$Bytes B"
+}
+
 function Invoke-Download {
     param(
         [string]$Uri,
-        [string]$Destination
+        [string]$Destination,
+        [string]$DisplayName = "Download"
     )
 
     Write-TechnicalLog "DOWNLOAD: $Uri -> $Destination"
-    Invoke-WebRequest -UseBasicParsing -Uri $Uri -OutFile $Destination
+    $client = New-RandomFavoritesHttpClient
+    $response = $null
+    $networkStream = $null
+    $fileStream = $null
+
+    try {
+        $responseTask = $client.GetAsync(
+            [Uri]$Uri,
+            [Net.Http.HttpCompletionOption]::ResponseHeadersRead
+        )
+        Wait-HttpTask $responseTask $DisplayName
+        $response = $responseTask.GetAwaiter().GetResult()
+        $response.EnsureSuccessStatusCode() | Out-Null
+
+        $streamTask = $response.Content.ReadAsStreamAsync()
+        Wait-HttpTask $streamTask $DisplayName
+        $networkStream = $streamTask.GetAwaiter().GetResult()
+        $fileStream = [IO.File]::Open(
+            $Destination,
+            [IO.FileMode]::Create,
+            [IO.FileAccess]::Write,
+            [IO.FileShare]::None
+        )
+
+        $buffer = New-Object byte[] 65536
+        $downloadedBytes = [long]0
+        $totalBytes = $response.Content.Headers.ContentLength
+
+        while ($true) {
+            $readTask = $networkStream.ReadAsync($buffer, 0, $buffer.Length)
+            while (-not $readTask.IsCompleted) {
+                Update-TuiActivity $script:TuiDetail -Progress $script:TuiStageProgress
+                [Threading.Thread]::Sleep(20)
+            }
+
+            $read = $readTask.GetAwaiter().GetResult()
+            if ($read -le 0) {
+                break
+            }
+
+            $fileStream.Write($buffer, 0, $read)
+            $downloadedBytes += $read
+
+            if ($null -ne $totalBytes -and [long]$totalBytes -gt 0) {
+                $ratio = [Math]::Min(1.0, $downloadedBytes / [double]$totalBytes)
+                $detail = "{0} : {1} / {2}" -f `
+                    $DisplayName,
+                    (Format-ByteCount $downloadedBytes),
+                    (Format-ByteCount ([long]$totalBytes))
+                Update-TuiActivity $detail -Progress (0.10 + ($ratio * 0.75))
+            } else {
+                $detail = "{0} : {1}" -f $DisplayName, (Format-ByteCount $downloadedBytes)
+                Update-TuiActivity $detail
+            }
+        }
+
+        $fileStream.Flush()
+        Write-TechnicalLog "DOWNLOAD COMPLETE: $downloadedBytes bytes"
+    } finally {
+        if ($null -ne $fileStream) {
+            $fileStream.Dispose()
+        }
+        if ($null -ne $networkStream) {
+            $networkStream.Dispose()
+        }
+        if ($null -ne $response) {
+            $response.Dispose()
+        }
+        $client.Dispose()
+    }
+}
+
+function Expand-ZipArchive {
+    param(
+        [string]$ArchivePath,
+        [string]$DestinationPath
+    )
+
+    if (Test-Path -LiteralPath $DestinationPath) {
+        $existingItems = @(Get-ChildItem -LiteralPath $DestinationPath -Force)
+        if ($existingItems.Count -gt 0) {
+            throw "The extraction folder '$DestinationPath' is not empty."
+        }
+    } else {
+        New-Item -ItemType Directory -Path $DestinationPath -Force | Out-Null
+    }
+
+    if ($script:TuiEnabled) {
+        $archiveLiteral = ConvertTo-PowerShellSingleQuotedLiteral $ArchivePath
+        $destinationLiteral = ConvertTo-PowerShellSingleQuotedLiteral $DestinationPath
+        $extractScript = @"
+`$ErrorActionPreference = "Stop"
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+[IO.Compression.ZipFile]::ExtractToDirectory($archiveLiteral, $destinationLiteral)
+"@
+        $encodedExtractScript = [Convert]::ToBase64String(
+            [Text.Encoding]::Unicode.GetBytes($extractScript)
+        )
+        Invoke-External (Join-Path $PSHOME "powershell.exe") @(
+            "-NoLogo",
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy", "Bypass",
+            "-EncodedCommand", $encodedExtractScript
+        )
+    } else {
+        [IO.Compression.ZipFile]::ExtractToDirectory($ArchivePath, $DestinationPath)
+    }
 }
 
 function Assert-Sha256 {
@@ -309,9 +1058,9 @@ function Install-PortableGit {
     param([string]$BootstrapDirectory)
 
     $architecture = Get-WindowsArchitecture
-    $release = Invoke-RestMethod `
-        -Uri "https://api.github.com/repos/git-for-windows/git/releases/latest" `
-        -Headers @{ "User-Agent" = "RandomFavoritesManager" }
+    $release = Invoke-JsonRequest `
+        "https://api.github.com/repos/git-for-windows/git/releases/latest" `
+        (Get-UiText "Looking for a portable Git version..." "Recherche d'une version portable de Git...")
 
     $assetPattern = "^MinGit-.+-$([regex]::Escape($architecture.GitAssetSuffix))\.zip$"
     $asset = $release.assets |
@@ -332,9 +1081,14 @@ function Install-PortableGit {
     $gitDirectory = Join-Path $BootstrapDirectory "git"
 
     Write-TechnicalLog "Git was not found; using temporary MinGit $($release.tag_name)."
-    Invoke-Download $asset.browser_download_url $archivePath
+    Invoke-Download `
+        $asset.browser_download_url `
+        $archivePath `
+        (Get-UiText "Downloading portable Git" "Telechargement de Git portable")
+    Update-TuiActivity (Get-UiText "Checking the Git download..." "Verification du telechargement de Git...") -Progress 0.88 -Force
     Assert-Sha256 $archivePath $expectedHash
-    Expand-Archive -LiteralPath $archivePath -DestinationPath $gitDirectory -Force
+    Update-TuiActivity (Get-UiText "Extracting portable Git..." "Extraction de Git portable...") -Progress 0.90 -Force
+    Expand-ZipArchive $archivePath $gitDirectory
 
     $gitExecutable = Join-Path $gitDirectory "cmd\git.exe"
     if (-not (Test-Path -LiteralPath $gitExecutable)) {
@@ -349,6 +1103,7 @@ function Ensure-Git {
     if ($null -ne $existingGit) {
         $script:GitExecutable = $existingGit.Source
         Write-TechnicalLog "Reusing the existing Git installation."
+        Update-TuiActivity (Get-UiText "Using the Git installation already present." "Utilisation de Git deja present.") -Progress 0.65 -Force
     } else {
         $script:GitExecutable = Install-PortableGit $script:BootstrapDirectory
         $env:Path = "$(Split-Path -Parent $script:GitExecutable);$env:Path"
@@ -380,7 +1135,9 @@ function Install-PortableNode {
     )
 
     $architecture = Get-WindowsArchitecture
-    $nodeIndex = Invoke-RestMethod -Uri "https://nodejs.org/dist/index.json"
+    $nodeIndex = Invoke-JsonRequest `
+        "https://nodejs.org/dist/index.json" `
+        (Get-UiText "Looking for a compatible Node.js version..." "Recherche d'une version compatible de Node.js...")
     $compatibleReleases = @($nodeIndex | Where-Object {
         $major = [int](($_.version -replace "^v", "").Split(".")[0])
         $major -ge $RequiredMajor -and $_.files -contains $architecture.NodeFileToken
@@ -402,8 +1159,14 @@ function Install-PortableNode {
     $extractDirectory = Join-Path $BootstrapDirectory "node"
 
     Write-TechnicalLog "A compatible Node.js was not found; using temporary Node.js $version."
-    Invoke-Download "$releaseUri/$archiveName" $archivePath
-    Invoke-Download "$releaseUri/SHASUMS256.txt" $checksumsPath
+    Invoke-Download `
+        "$releaseUri/$archiveName" `
+        $archivePath `
+        (Get-UiText "Downloading portable Node.js" "Telechargement de Node.js portable")
+    Invoke-Download `
+        "$releaseUri/SHASUMS256.txt" `
+        $checksumsPath `
+        (Get-UiText "Downloading official checksums" "Telechargement des empreintes officielles")
 
     $checksumLine = Get-Content -LiteralPath $checksumsPath |
         Where-Object { $_ -match "^([a-fA-F0-9]{64})\s+$([regex]::Escape($archiveName))$" } |
@@ -412,8 +1175,10 @@ function Install-PortableNode {
         throw "The official Node.js checksum file does not contain '$archiveName'."
     }
 
+    Update-TuiActivity (Get-UiText "Checking the Node.js download..." "Verification du telechargement de Node.js...") -Progress 0.88 -Force
     Assert-Sha256 $archivePath $Matches[1]
-    Expand-Archive -LiteralPath $archivePath -DestinationPath $extractDirectory -Force
+    Update-TuiActivity (Get-UiText "Extracting portable Node.js..." "Extraction de Node.js portable...") -Progress 0.90 -Force
+    Expand-ZipArchive $archivePath $extractDirectory
 
     $nodeDirectory = Join-Path $extractDirectory "node-$version-$($architecture.NodeArchiveSuffix)"
     $nodeExecutable = Join-Path $nodeDirectory "node.exe"
@@ -445,6 +1210,7 @@ function Ensure-Node {
         $script:NodeExecutable = $existingNode.Source
         $script:NpmExecutable = $existingNpm.Source
         Write-TechnicalLog "Reusing the existing Node.js installation."
+        Update-TuiActivity (Get-UiText "Using the Node.js installation already present." "Utilisation de Node.js deja present.") -Progress 0.45 -Force
     } else {
         $portableNode = Install-PortableNode $RequiredMajor $script:BootstrapDirectory
         $script:NodeExecutable = $portableNode.NodeExecutable
@@ -502,6 +1268,10 @@ function Update-Repository {
         }
 
         Write-TechnicalLog "Updating $DisplayName."
+        Update-TuiActivity `
+            (Get-UiText "Updating $DisplayName..." "Mise a jour de $DisplayName...") `
+            -Progress 0.18 `
+            -Force
         Invoke-External $script:GitExecutable @("-C", $Destination, "pull", "--ff-only")
         return
     }
@@ -512,6 +1282,10 @@ function Update-Repository {
     }
 
     Write-TechnicalLog "Installing $DisplayName."
+    Update-TuiActivity `
+        (Get-UiText "Downloading $DisplayName..." "Telechargement de $DisplayName...") `
+        -Progress 0.12 `
+        -Force
     Invoke-External $script:GitExecutable @("clone", $Repository, $Destination)
 }
 
@@ -567,6 +1341,10 @@ function Resolve-Pnpm {
     }
 
     Write-TechnicalLog "Installing the Vencord-required pnpm $Version temporarily."
+    Update-TuiActivity `
+        (Get-UiText "Preparing pnpm $Version..." "Preparation de pnpm $Version...") `
+        -Progress 0.55 `
+        -Force
     Invoke-External $script:NpmExecutable @(
         "install",
         "--prefix", $ToolsDirectory,
@@ -655,11 +1433,18 @@ function Start-Discord {
     $discordExe = "$processName.exe"
 
     if (-not (Test-Path -LiteralPath $updateExe)) {
-        Write-Host "  Discord restart skipped because '$updateExe' was not found." -ForegroundColor Yellow
+        if ($script:TuiEnabled) {
+            Update-TuiActivity `
+                (Get-UiText "Discord could not be restarted automatically." "Discord n'a pas pu etre redemarre automatiquement.") `
+                -Force
+        } else {
+            Write-Host "  Discord restart skipped because '$updateExe' was not found." -ForegroundColor Yellow
+        }
         return
     }
 
     Write-TechnicalLog "Restarting $processName."
+    Update-TuiActivity (Get-UiText "Restarting Discord..." "Redemarrage de Discord...") -Progress 0.88 -Force
     Start-Process -FilePath $updateExe -ArgumentList "--processStart", $discordExe
 }
 
@@ -749,6 +1534,7 @@ function Remove-BootstrapTools {
 }
 
 function Main {
+    $script:TuiStages = @(New-TuiStages)
     Write-Banner
 
     $resolvedRoot = [IO.Path]::GetFullPath($InstallRoot)
@@ -801,6 +1587,8 @@ function Main {
         }
     }
 
+    Initialize-LiveTui
+
     $stageTimer = Write-Step 1 7 `
         (Get-UiText "Preparing the installer" "Preparation de l'installateur") `
         (Get-UiText "Checking the tools needed for a safe installation." "Verification des outils necessaires a une installation sure.")
@@ -835,12 +1623,20 @@ function Main {
     $stageTimer = Write-Step 5 7 `
         (Get-UiText "Preparing dependencies" "Preparation des dependances") `
         (Get-UiText "Checking the exact files required to build Vencord." "Verification des fichiers exacts necessaires a la compilation de Vencord.")
+    Update-TuiActivity `
+        (Get-UiText "Installing the exact Vencord dependencies..." "Installation des dependances exactes de Vencord...") `
+        -Progress 0.08 `
+        -Force
     Invoke-External $pnpm @("install", "--frozen-lockfile") $vencordDirectory
     Complete-Step $stageTimer
 
     $stageTimer = Write-Step 6 7 `
         (Get-UiText "Building the custom Discord mod" "Compilation du mod Discord personnalise") `
         (Get-UiText "Creating Vencord with RandomFavorites included. This can take a moment." "Creation de Vencord avec RandomFavorites inclus. Cette etape peut prendre un moment.")
+    Update-TuiActivity `
+        (Get-UiText "Compiling Vencord with RandomFavorites..." "Compilation de Vencord avec RandomFavorites...") `
+        -Progress 0.05 `
+        -Force
     Invoke-External $pnpm @("build") $vencordDirectory
 
     $patcherPath = Join-Path $vencordDirectory "dist\patcher.js"
@@ -854,10 +1650,19 @@ function Main {
         (Get-UiText "Installing into Discord" "Installation dans Discord") `
         (Get-UiText "Discord closes only now, then restarts automatically." "Discord se ferme seulement maintenant, puis redemarre automatiquement.")
     if ($SkipInject) {
-        Write-Host "  $(Get-UiText "Discord modification skipped by command-line option." "Modification de Discord ignoree par option de ligne de commande.")" -ForegroundColor Yellow
+        if ($script:TuiEnabled) {
+            Update-TuiActivity `
+                (Get-UiText "Discord modification skipped by command-line option." "Modification de Discord ignoree par option de ligne de commande.") `
+                -Progress 0.75 `
+                -Force
+        } else {
+            Write-Host "  $(Get-UiText "Discord modification skipped by command-line option." "Modification de Discord ignoree par option de ligne de commande.")" -ForegroundColor Yellow
+        }
         Write-TechnicalLog "Discord injection skipped by command-line option."
     } else {
+        Update-TuiActivity (Get-UiText "Closing Discord..." "Fermeture de Discord...") -Progress 0.12 -Force
         Stop-Discord $Branch
+        Update-TuiActivity (Get-UiText "Installing Vencord into Discord..." "Installation de Vencord dans Discord...") -Progress 0.25 -Force
         Invoke-External $script:NodeExecutable @(
             "scripts\runInstaller.mjs",
             "--",
@@ -872,6 +1677,7 @@ function Main {
     }
 
     $updateLauncher = Join-Path $resolvedRoot "Update RandomFavorites.cmd"
+    Update-TuiActivity (Get-UiText "Saving the update shortcut..." "Enregistrement du raccourci de mise a jour...") -Progress 0.92 -Force
     Write-UpdateLauncher $resolvedRoot $pluginDirectory
     Write-State $resolvedRoot $vencordDirectory $pluginDirectory $Branch
     Complete-Step $stageTimer
@@ -887,27 +1693,39 @@ try {
 } catch {
     $exitCode = 1
     Write-TechnicalLog "ERROR: $($_.Exception.ToString())"
-    Write-Host ""
-    Write-Host "  +----------------------------------------------------------+" -ForegroundColor Red
-    Write-Host "  |  $(Get-UiText "INSTALLATION FAILED" "ECHEC DE L'INSTALLATION")".PadRight(59).Substring(0, 59) -NoNewline -ForegroundColor Red
-    Write-Host "|" -ForegroundColor Red
-    Write-Host "  +----------------------------------------------------------+" -ForegroundColor Red
-    if ($script:CurrentStage) {
-        Write-Host "  $(Get-UiText "Stage:" "Etape :") $script:CurrentStage" -ForegroundColor Yellow
+    if ($script:TuiEnabled) {
+        Set-LiveTuiFailure $_.Exception.Message
+    } else {
+        Write-Host ""
+        Write-Host "  +----------------------------------------------------------+" -ForegroundColor Red
+        Write-Host "  |  $(Get-UiText "INSTALLATION FAILED" "ECHEC DE L'INSTALLATION")".PadRight(59).Substring(0, 59) -NoNewline -ForegroundColor Red
+        Write-Host "|" -ForegroundColor Red
+        Write-Host "  +----------------------------------------------------------+" -ForegroundColor Red
+        if ($script:CurrentStage) {
+            Write-Host "  $(Get-UiText "Stage:" "Etape :") $script:CurrentStage" -ForegroundColor Yellow
+        }
+        Write-Host "  $(Get-UiText "Reason:" "Raison :") $($_.Exception.Message)" -ForegroundColor White
+        Write-Host ""
+        Write-Host "  $(Get-UiText "Discord was not closed unless the final installation stage had started." "Discord n'a pas ete ferme sauf si l'etape finale d'installation avait commence.")" -ForegroundColor DarkGray
+        Write-Host "  $(Get-UiText "Diagnostic log:" "Journal de diagnostic :") $script:TechnicalLogPath" -ForegroundColor Yellow
     }
-    Write-Host "  $(Get-UiText "Reason:" "Raison :") $($_.Exception.Message)" -ForegroundColor White
-    Write-Host ""
-    Write-Host "  $(Get-UiText "Discord was not closed unless the final installation stage had started." "Discord n'a pas ete ferme sauf si l'etape finale d'installation avait commence.")" -ForegroundColor DarkGray
-    Write-Host "  $(Get-UiText "Diagnostic log:" "Journal de diagnostic :") $script:TechnicalLogPath" -ForegroundColor Yellow
 } finally {
     try {
+        if ($script:TuiEnabled -and $script:Completed) {
+            Update-TuiActivity (Get-UiText "Removing temporary build tools..." "Nettoyage des outils temporaires...") -Force
+        }
         Remove-BootstrapTools
     } catch {
         $exitCode = 1
         Write-TechnicalLog "ERROR while removing temporary tools: $($_.Exception.ToString())"
-        Write-Host "  $(Get-UiText "Temporary-tool cleanup failed:" "Le nettoyage des outils temporaires a echoue :") $($_.Exception.Message)" -ForegroundColor Red
+        if ($script:TuiEnabled) {
+            Set-LiveTuiFailure ((Get-UiText "Temporary-tool cleanup failed: " "Le nettoyage des outils temporaires a echoue : ") + $_.Exception.Message)
+        } else {
+            Write-Host "  $(Get-UiText "Temporary-tool cleanup failed:" "Le nettoyage des outils temporaires a echoue :") $($_.Exception.Message)" -ForegroundColor Red
+        }
     }
     $env:Path = $script:OriginalPath
+    $ProgressPreference = $script:OriginalProgressPreference
 
     if ($script:TranscriptStarted) {
         Stop-Transcript | Out-Null
@@ -916,6 +1734,8 @@ try {
 
 if ($exitCode -eq 0 -and $script:Completed) {
     Write-FinalSuccess $script:UpdateLauncherPath $script:InstalledToDiscord
+} elseif ($script:TuiInitialized) {
+    Stop-LiveTui
 }
 
 exit $exitCode
