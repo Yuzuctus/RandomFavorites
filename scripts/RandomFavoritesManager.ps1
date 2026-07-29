@@ -13,7 +13,9 @@ param(
 
     [switch]$SkipRestart,
 
-    [switch]$NonInteractive
+    [switch]$NonInteractive,
+
+    [switch]$ShowDetails
 )
 
 Set-StrictMode -Version Latest
@@ -22,18 +24,62 @@ $ErrorActionPreference = "Stop"
 
 $script:TranscriptStarted = $false
 $script:LogPath = $null
+$script:TechnicalLogPath = $null
 $script:ResolvedInstallRoot = $null
 $script:BootstrapDirectory = $null
 $script:GitExecutable = $null
 $script:NodeExecutable = $null
 $script:NpmExecutable = $null
 $script:OriginalPath = $env:Path
+$script:IsFrench = [Globalization.CultureInfo]::CurrentUICulture.TwoLetterISOLanguageName -eq "fr"
+$script:RunTimer = [Diagnostics.Stopwatch]::StartNew()
+$script:CommandCounter = 0
+$script:CurrentStage = $null
+$script:Completed = $false
+$script:UpdateLauncherPath = $null
+$script:InstalledToDiscord = $false
+
+function Get-UiText {
+    param(
+        [string]$English,
+        [string]$French
+    )
+
+    if ($script:IsFrench) {
+        return $French
+    }
+
+    return $English
+}
+
+function Format-Elapsed {
+    param([TimeSpan]$Elapsed)
+
+    if ($Elapsed.TotalHours -ge 1) {
+        return "{0:00}:{1:00}:{2:00}" -f [int]$Elapsed.TotalHours, $Elapsed.Minutes, $Elapsed.Seconds
+    }
+
+    return "{0:00}:{1:00}" -f [int]$Elapsed.TotalMinutes, $Elapsed.Seconds
+}
+
+function Write-TechnicalLog {
+    param([string]$Message)
+
+    if (-not $script:TechnicalLogPath) {
+        return
+    }
+
+    $timestamp = [DateTime]::Now.ToString("yyyy-MM-dd HH:mm:ss")
+    Add-Content -LiteralPath $script:TechnicalLogPath -Value "[$timestamp] $Message" -Encoding UTF8
+}
 
 function Write-Banner {
     Write-Host ""
-    Write-Host "============================================================" -ForegroundColor Cyan
-    Write-Host "  RandomFavorites - Vencord installer and update manager" -ForegroundColor Cyan
-    Write-Host "============================================================" -ForegroundColor Cyan
+    Write-Host "  +----------------------------------------------------------+" -ForegroundColor DarkCyan
+    Write-Host "  |                    RANDOMFAVORITES                       |" -ForegroundColor Cyan
+    Write-Host "  |  $(Get-UiText "Simple Vencord installation and update" "Installation et mise a jour simple de Vencord")".PadRight(59).Substring(0, 59) -NoNewline -ForegroundColor White
+    Write-Host "|" -ForegroundColor DarkCyan
+    Write-Host "  +----------------------------------------------------------+" -ForegroundColor DarkCyan
     Write-Host ""
 }
 
@@ -41,10 +87,56 @@ function Write-Step {
     param(
         [int]$Number,
         [int]$Total,
-        [string]$Message
+        [string]$Message,
+        [string]$Explanation
     )
 
-    Write-Host "[$Number/$Total] $Message" -ForegroundColor Cyan
+    $percent = [Math]::Floor(($Number / $Total) * 100)
+    $filled = [Math]::Floor(($Number / $Total) * 24)
+    $bar = ("#" * $filled).PadRight(24, "-")
+    $timer = [Diagnostics.Stopwatch]::StartNew()
+
+    Write-Host ""
+    Write-Host "  [$bar] $percent%  $(Get-UiText "Step" "Etape") $Number/$Total" -ForegroundColor Cyan
+    Write-Host "  $Message" -ForegroundColor White
+    Write-Host "  $Explanation" -ForegroundColor DarkGray
+    Write-TechnicalLog "STAGE $Number/$Total - $Message - $Explanation"
+    $script:CurrentStage = $Message
+
+    return $timer
+}
+
+function Complete-Step {
+    param([Diagnostics.Stopwatch]$Timer)
+
+    $Timer.Stop()
+    Write-Host "  [OK] $(Get-UiText "Completed in" "Termine en") $(Format-Elapsed $Timer.Elapsed)" -ForegroundColor Green
+}
+
+function Write-FinalSuccess {
+    param(
+        [string]$UpdateLauncher,
+        [bool]$InstalledToDiscord
+    )
+
+    Write-Host ""
+    Write-Host "  +----------------------------------------------------------+" -ForegroundColor Green
+    Write-Host "  |  $(Get-UiText "INSTALLATION COMPLETED" "INSTALLATION TERMINEE")".PadRight(59).Substring(0, 59) -NoNewline -ForegroundColor Green
+    Write-Host "|" -ForegroundColor Green
+    Write-Host "  +----------------------------------------------------------+" -ForegroundColor Green
+    if ($InstalledToDiscord) {
+        Write-Host "  $(Get-UiText "Discord is ready with RandomFavorites." "Discord est pret avec RandomFavorites.")" -ForegroundColor White
+    } else {
+        Write-Host "  $(Get-UiText "The build is ready. Discord was not modified." "La compilation est prete. Discord n'a pas ete modifie.")" -ForegroundColor White
+    }
+    Write-Host "  $(Get-UiText "Total time:" "Temps total :") $(Format-Elapsed $script:RunTimer.Elapsed)" -ForegroundColor DarkGray
+    Write-Host ""
+    Write-Host "  $(Get-UiText "For future updates, double-click:" "Pour les prochaines mises a jour, double-clique :")" -ForegroundColor White
+    Write-Host "  $UpdateLauncher" -ForegroundColor Cyan
+    if ($script:TechnicalLogPath) {
+        Write-Host ""
+        Write-Host "  $(Get-UiText "Diagnostic log:" "Journal de diagnostic :") $script:TechnicalLogPath" -ForegroundColor DarkGray
+    }
 }
 
 function Test-Command {
@@ -73,20 +165,48 @@ function Invoke-External {
         [string]$WorkingDirectory
     )
 
-    Write-Host ("  > " + (Format-Command $FilePath $Arguments)) -ForegroundColor DarkGray
+    $formattedCommand = Format-Command $FilePath $Arguments
+    Write-TechnicalLog "COMMAND: $formattedCommand"
+
+    $script:CommandCounter++
+    $commandLog = "$script:TechnicalLogPath.command-$($script:CommandCounter).tmp"
 
     if ($WorkingDirectory) {
         Push-Location -LiteralPath $WorkingDirectory
     }
 
     try {
-        & $FilePath @Arguments
+        $previousErrorPreference = $ErrorActionPreference
+        $ErrorActionPreference = "Continue"
+        try {
+            & $FilePath @Arguments *> $commandLog
+        } finally {
+            $ErrorActionPreference = $previousErrorPreference
+        }
         $exitCode = $LASTEXITCODE
+        $output = if (Test-Path -LiteralPath $commandLog) {
+            Get-Content -LiteralPath $commandLog -Raw -ErrorAction SilentlyContinue
+        } else {
+            ""
+        }
+
+        if (-not [string]::IsNullOrWhiteSpace($output)) {
+            Add-Content -LiteralPath $script:TechnicalLogPath -Value $output -Encoding UTF8
+            if ($ShowDetails) {
+                Write-Host $output.TrimEnd() -ForegroundColor DarkGray
+            }
+        }
 
         if ($exitCode -ne 0) {
-            throw "Command failed with exit code $exitCode`: $(Format-Command $FilePath $Arguments)"
+            Write-TechnicalLog "COMMAND FAILED with exit code $exitCode`: $formattedCommand"
+            throw (Get-UiText `
+                "A technical command stopped unexpectedly (code $exitCode). See the diagnostic log below." `
+                "Une commande technique s'est arretee de facon inattendue (code $exitCode). Consulte le journal de diagnostic ci-dessous.")
         }
     } finally {
+        if (Test-Path -LiteralPath $commandLog) {
+            Remove-Item -LiteralPath $commandLog -Force
+        }
         if ($WorkingDirectory) {
             Pop-Location
         }
@@ -105,14 +225,29 @@ function Invoke-ExternalCapture {
     }
 
     try {
-        $output = & $FilePath @Arguments 2>&1
+        $formattedCommand = Format-Command $FilePath $Arguments
+        Write-TechnicalLog "COMMAND (capture): $formattedCommand"
+        $previousErrorPreference = $ErrorActionPreference
+        $ErrorActionPreference = "Continue"
+        try {
+            $output = & $FilePath @Arguments 2>&1
+        } finally {
+            $ErrorActionPreference = $previousErrorPreference
+        }
         $exitCode = $LASTEXITCODE
-
-        if ($exitCode -ne 0) {
-            throw "Command failed with exit code $exitCode`: $(Format-Command $FilePath $Arguments)"
+        $outputText = ($output | Out-String).Trim()
+        if (-not [string]::IsNullOrWhiteSpace($outputText)) {
+            Write-TechnicalLog "OUTPUT: $outputText"
         }
 
-        return ($output | Out-String).Trim()
+        if ($exitCode -ne 0) {
+            Write-TechnicalLog "COMMAND FAILED with exit code $exitCode`: $formattedCommand"
+            throw (Get-UiText `
+                "A technical command stopped unexpectedly (code $exitCode). See the diagnostic log below." `
+                "Une commande technique s'est arretee de facon inattendue (code $exitCode). Consulte le journal de diagnostic ci-dessous.")
+        }
+
+        return $outputText
     } finally {
         if ($WorkingDirectory) {
             Pop-Location
@@ -154,7 +289,7 @@ function Invoke-Download {
         [string]$Destination
     )
 
-    Write-Host "  Downloading $Uri" -ForegroundColor DarkGray
+    Write-TechnicalLog "DOWNLOAD: $Uri -> $Destination"
     Invoke-WebRequest -UseBasicParsing -Uri $Uri -OutFile $Destination
 }
 
@@ -196,7 +331,7 @@ function Install-PortableGit {
     $archivePath = Join-Path $BootstrapDirectory $asset.name
     $gitDirectory = Join-Path $BootstrapDirectory "git"
 
-    Write-Host "  Git was not found; using temporary MinGit $($release.tag_name)." -ForegroundColor Yellow
+    Write-TechnicalLog "Git was not found; using temporary MinGit $($release.tag_name)."
     Invoke-Download $asset.browser_download_url $archivePath
     Assert-Sha256 $archivePath $expectedHash
     Expand-Archive -LiteralPath $archivePath -DestinationPath $gitDirectory -Force
@@ -213,14 +348,14 @@ function Ensure-Git {
     $existingGit = Get-Command "git.exe" -ErrorAction SilentlyContinue
     if ($null -ne $existingGit) {
         $script:GitExecutable = $existingGit.Source
-        Write-Host "  Reusing the existing Git installation." -ForegroundColor Green
+        Write-TechnicalLog "Reusing the existing Git installation."
     } else {
         $script:GitExecutable = Install-PortableGit $script:BootstrapDirectory
         $env:Path = "$(Split-Path -Parent $script:GitExecutable);$env:Path"
     }
 
     $version = Invoke-ExternalCapture $script:GitExecutable @("--version")
-    Write-Host "  $version" -ForegroundColor Green
+    Write-TechnicalLog "Git version: $version"
 }
 
 function Get-NodeMajorVersion {
@@ -266,7 +401,7 @@ function Install-PortableNode {
     $checksumsPath = Join-Path $BootstrapDirectory "node-SHASUMS256.txt"
     $extractDirectory = Join-Path $BootstrapDirectory "node"
 
-    Write-Host "  A compatible Node.js was not found; using temporary Node.js $version." -ForegroundColor Yellow
+    Write-TechnicalLog "A compatible Node.js was not found; using temporary Node.js $version."
     Invoke-Download "$releaseUri/$archiveName" $archivePath
     Invoke-Download "$releaseUri/SHASUMS256.txt" $checksumsPath
 
@@ -309,7 +444,7 @@ function Ensure-Node {
     if ($installedMajor -ge $RequiredMajor -and $null -ne $existingNpm) {
         $script:NodeExecutable = $existingNode.Source
         $script:NpmExecutable = $existingNpm.Source
-        Write-Host "  Reusing the existing Node.js installation." -ForegroundColor Green
+        Write-TechnicalLog "Reusing the existing Node.js installation."
     } else {
         $portableNode = Install-PortableNode $RequiredMajor $script:BootstrapDirectory
         $script:NodeExecutable = $portableNode.NodeExecutable
@@ -318,7 +453,7 @@ function Ensure-Node {
     }
 
     $version = Invoke-ExternalCapture $script:NodeExecutable @("--version")
-    Write-Host "  Node.js $version" -ForegroundColor Green
+    Write-TechnicalLog "Node.js version: $version"
 }
 
 function Normalize-Repository {
@@ -366,7 +501,7 @@ function Update-Repository {
             throw "$DisplayName contains local tracked changes. They were not overwritten. Commit or revert them, then run the manager again."
         }
 
-        Write-Host "  Updating $DisplayName..." -ForegroundColor White
+        Write-TechnicalLog "Updating $DisplayName."
         Invoke-External $script:GitExecutable @("-C", $Destination, "pull", "--ff-only")
         return
     }
@@ -376,7 +511,7 @@ function Update-Repository {
         New-Item -ItemType Directory -Path $parent -Force | Out-Null
     }
 
-    Write-Host "  Installing $DisplayName..." -ForegroundColor White
+    Write-TechnicalLog "Installing $DisplayName."
     Invoke-External $script:GitExecutable @("clone", $Repository, $Destination)
 }
 
@@ -422,7 +557,7 @@ function Resolve-Pnpm {
     if ($null -ne $existingPnpm) {
         $existingVersion = Invoke-ExternalCapture $existingPnpm.Source @("--version")
         if ($existingVersion -eq $Version) {
-            Write-Host "  pnpm $existingVersion" -ForegroundColor Green
+            Write-TechnicalLog "Reusing pnpm $existingVersion."
             return $existingPnpm.Source
         }
     }
@@ -431,14 +566,14 @@ function Resolve-Pnpm {
         New-Item -ItemType Directory -Path $ToolsDirectory -Force | Out-Null
     }
 
-    Write-Host "  Installing the Vencord-required pnpm $Version locally..." -ForegroundColor Yellow
+    Write-TechnicalLog "Installing the Vencord-required pnpm $Version temporarily."
     Invoke-External $script:NpmExecutable @(
         "install",
         "--prefix", $ToolsDirectory,
         "--no-save",
         "--no-package-lock",
         "pnpm@$Version"
-    ) | Out-Host
+    )
 
     $localPnpm = Join-Path $ToolsDirectory "node_modules\.bin\pnpm.cmd"
     if (-not (Test-Path -LiteralPath $localPnpm)) {
@@ -478,7 +613,7 @@ function Stop-Discord {
         return
     }
 
-    Write-Host "  Closing $processName so the Vencord installer can patch it..." -ForegroundColor Yellow
+    Write-TechnicalLog "Closing $processName so the Vencord installer can patch it."
     $processes | Stop-Process -Force
 }
 
@@ -524,7 +659,7 @@ function Start-Discord {
         return
     }
 
-    Write-Host "  Restarting $processName..." -ForegroundColor White
+    Write-TechnicalLog "Restarting $processName."
     Start-Process -FilePath $updateExe -ArgumentList "--processStart", $discordExe
 }
 
@@ -555,15 +690,9 @@ function Write-UpdateLauncher {
     $lines = @(
         "@echo off",
         "setlocal",
-        "title RandomFavorites - Vencord Manager",
+        "title RandomFavorites - Mise a jour",
         "powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File `"%~dp0manager\RandomFavoritesManager.ps1`" -InstallRoot `"%~dp0.`" %*",
         "set `"EXIT_CODE=%ERRORLEVEL%`"",
-        "echo.",
-        "if `"%EXIT_CODE%`"==`"0`" (",
-        "    echo RandomFavorites Manager finished successfully.",
-        ") else (",
-        "    echo RandomFavorites Manager failed with exit code %EXIT_CODE%.",
-        ")",
         "if not defined RANDOM_FAVORITES_NO_PAUSE pause",
         "exit /b %EXIT_CODE%"
     )
@@ -615,7 +744,7 @@ function Remove-BootstrapTools {
         throw "Refusing to remove unexpected temporary directory '$resolvedBootstrap'."
     }
 
-    Write-Host "Removing temporary Git, Node.js and pnpm tools..." -ForegroundColor DarkGray
+    Write-TechnicalLog "Removing temporary Git, Node.js and pnpm tools."
     Remove-Item -LiteralPath $resolvedBootstrap -Recurse -Force
 }
 
@@ -640,51 +769,78 @@ function Main {
         New-Item -ItemType Directory -Path $bootstrapDirectory -Force | Out-Null
     }
 
-    $script:LogPath = Join-Path $logsDirectory ("manager-{0}.log" -f [DateTime]::Now.ToString("yyyyMMdd-HHmmss"))
+    $runId = [DateTime]::Now.ToString("yyyyMMdd-HHmmss")
+    $script:LogPath = Join-Path $logsDirectory "manager-$runId.log"
+    $script:TechnicalLogPath = Join-Path $logsDirectory "details-$runId.log"
+    New-Item -ItemType File -Path $script:TechnicalLogPath -Force | Out-Null
     try {
         Start-Transcript -LiteralPath $script:LogPath -Force | Out-Null
         $script:TranscriptStarted = $true
     } catch {
-        Write-Host "Warning: the transcript log could not be started: $($_.Exception.Message)" -ForegroundColor Yellow
+        Write-TechnicalLog "The UI transcript could not be started: $($_.Exception.Message)"
     }
 
-    Write-Host "Install folder : $resolvedRoot"
-    Write-Host "Discord branch: $Branch"
+    Write-TechnicalLog "Install root: $resolvedRoot"
+    Write-TechnicalLog "Discord branch: $Branch"
+    Write-TechnicalLog "Vencord repository: $VencordRepository"
+    Write-TechnicalLog "Plugin repository: $PluginRepository"
+
+    Write-Host "  $(Get-UiText "Installation folder:" "Dossier d'installation :") $resolvedRoot" -ForegroundColor DarkGray
+    Write-Host "  $(Get-UiText "Discord version:" "Version de Discord :") $Branch" -ForegroundColor DarkGray
     Write-Host ""
 
     if (-not $NonInteractive) {
-        Write-Host "This manager downloads source code, compiles Vencord, closes Discord during injection, and restarts it." -ForegroundColor Yellow
-        $answer = Read-Host "Continue? [Y/n]"
+        Write-Host "  $(Get-UiText "Discord stays open while files are prepared." "Discord reste ouvert pendant la preparation des fichiers.")" -ForegroundColor White
+        Write-Host "  $(Get-UiText "It will close only during the final installation, then restart automatically." "Il se fermera seulement pendant l'installation finale, puis redemarrera automatiquement.")" -ForegroundColor White
+        Write-Host ""
+        $answer = Read-Host "  $(Get-UiText "Continue? [Y/n]" "Continuer ? [O/n]")"
         if ($answer -and $answer -notmatch "^(y|yes|o|oui)$") {
-            Write-Host "Cancelled."
+            Write-Host "  $(Get-UiText "Installation cancelled. Nothing was changed." "Installation annulee. Rien n'a ete modifie.")" -ForegroundColor Yellow
+            Write-TechnicalLog "Installation cancelled by the user."
             return
         }
     }
 
-    Write-Step 1 7 "Checking Git (temporary portable copy if needed)"
+    $stageTimer = Write-Step 1 7 `
+        (Get-UiText "Preparing the installer" "Preparation de l'installateur") `
+        (Get-UiText "Checking the tools needed for a safe installation." "Verification des outils necessaires a une installation sure.")
     Ensure-Git
+    Complete-Step $stageTimer
 
-    Write-Step 2 7 "Installing or updating Vencord"
+    $stageTimer = Write-Step 2 7 `
+        (Get-UiText "Preparing Vencord" "Preparation de Vencord") `
+        (Get-UiText "Downloading or updating the official Vencord source code." "Telechargement ou mise a jour du code officiel de Vencord.")
     Update-Repository $VencordRepository $vencordDirectory "Vencord"
-
     $requirements = Get-VencordRequirements $vencordDirectory
+    Complete-Step $stageTimer
 
-    Write-Step 3 7 "Checking Node.js and pnpm (temporary portable copies if needed)"
+    $stageTimer = Write-Step 3 7 `
+        (Get-UiText "Preparing build tools" "Preparation des outils de compilation") `
+        (Get-UiText "Reusing compatible tools or preparing temporary portable copies." "Reutilisation des outils compatibles ou preparation de copies portables temporaires.")
     Ensure-Node $requirements.NodeMajor
     $pnpmToolsDirectory = Join-Path $bootstrapDirectory "pnpm"
     $pnpm = Resolve-Pnpm $requirements.PnpmVersion $pnpmToolsDirectory
+    Complete-Step $stageTimer
 
-    Write-Step 4 7 "Installing or updating RandomFavorites"
+    $stageTimer = Write-Step 4 7 `
+        (Get-UiText "Updating RandomFavorites" "Mise a jour de RandomFavorites") `
+        (Get-UiText "Fetching the newest public version of the plugin." "Recuperation de la derniere version publique du plugin.")
     $userPluginsDirectory = Split-Path -Parent $pluginDirectory
     if (-not (Test-Path -LiteralPath $userPluginsDirectory)) {
         New-Item -ItemType Directory -Path $userPluginsDirectory -Force | Out-Null
     }
     Update-Repository $PluginRepository $pluginDirectory "RandomFavorites"
+    Complete-Step $stageTimer
 
-    Write-Step 5 7 "Installing Vencord dependencies"
+    $stageTimer = Write-Step 5 7 `
+        (Get-UiText "Preparing dependencies" "Preparation des dependances") `
+        (Get-UiText "Checking the exact files required to build Vencord." "Verification des fichiers exacts necessaires a la compilation de Vencord.")
     Invoke-External $pnpm @("install", "--frozen-lockfile") $vencordDirectory
+    Complete-Step $stageTimer
 
-    Write-Step 6 7 "Compiling Vencord with RandomFavorites"
+    $stageTimer = Write-Step 6 7 `
+        (Get-UiText "Building the custom Discord mod" "Compilation du mod Discord personnalise") `
+        (Get-UiText "Creating Vencord with RandomFavorites included. This can take a moment." "Creation de Vencord avec RandomFavorites inclus. Cette etape peut prendre un moment.")
     Invoke-External $pnpm @("build") $vencordDirectory
 
     $patcherPath = Join-Path $vencordDirectory "dist\patcher.js"
@@ -692,10 +848,14 @@ function Main {
     if (-not (Test-Path -LiteralPath $patcherPath) -or -not (Test-Path -LiteralPath $rendererPath)) {
         throw "The build command completed but the expected Vencord files are missing."
     }
+    Complete-Step $stageTimer
 
-    Write-Step 7 7 "Injecting the custom Vencord build"
+    $stageTimer = Write-Step 7 7 `
+        (Get-UiText "Installing into Discord" "Installation dans Discord") `
+        (Get-UiText "Discord closes only now, then restarts automatically." "Discord se ferme seulement maintenant, puis redemarre automatiquement.")
     if ($SkipInject) {
-        Write-Host "  Injection skipped by command-line option." -ForegroundColor Yellow
+        Write-Host "  $(Get-UiText "Discord modification skipped by command-line option." "Modification de Discord ignoree par option de ligne de commande.")" -ForegroundColor Yellow
+        Write-TechnicalLog "Discord injection skipped by command-line option."
     } else {
         Stop-Discord $Branch
         Invoke-External $script:NodeExecutable @(
@@ -711,15 +871,14 @@ function Main {
         }
     }
 
+    $updateLauncher = Join-Path $resolvedRoot "Update RandomFavorites.cmd"
     Write-UpdateLauncher $resolvedRoot $pluginDirectory
     Write-State $resolvedRoot $vencordDirectory $pluginDirectory $Branch
+    Complete-Step $stageTimer
 
-    Write-Host ""
-    Write-Host "RandomFavorites is installed and up to date." -ForegroundColor Green
-    Write-Host "Run '$(Join-Path $resolvedRoot "Update RandomFavorites.cmd")' later to update Vencord and the plugin." -ForegroundColor Green
-    if ($script:LogPath) {
-        Write-Host "Log: $script:LogPath" -ForegroundColor DarkGray
-    }
+    $script:UpdateLauncherPath = $updateLauncher
+    $script:InstalledToDiscord = -not $SkipInject
+    $script:Completed = $true
 }
 
 $exitCode = 0
@@ -727,23 +886,36 @@ try {
     Main
 } catch {
     $exitCode = 1
+    Write-TechnicalLog "ERROR: $($_.Exception.ToString())"
     Write-Host ""
-    Write-Host "ERROR: $($_.Exception.Message)" -ForegroundColor Red
-    if ($script:LogPath) {
-        Write-Host "Log: $script:LogPath" -ForegroundColor Yellow
+    Write-Host "  +----------------------------------------------------------+" -ForegroundColor Red
+    Write-Host "  |  $(Get-UiText "INSTALLATION FAILED" "ECHEC DE L'INSTALLATION")".PadRight(59).Substring(0, 59) -NoNewline -ForegroundColor Red
+    Write-Host "|" -ForegroundColor Red
+    Write-Host "  +----------------------------------------------------------+" -ForegroundColor Red
+    if ($script:CurrentStage) {
+        Write-Host "  $(Get-UiText "Stage:" "Etape :") $script:CurrentStage" -ForegroundColor Yellow
     }
+    Write-Host "  $(Get-UiText "Reason:" "Raison :") $($_.Exception.Message)" -ForegroundColor White
+    Write-Host ""
+    Write-Host "  $(Get-UiText "Discord was not closed unless the final installation stage had started." "Discord n'a pas ete ferme sauf si l'etape finale d'installation avait commence.")" -ForegroundColor DarkGray
+    Write-Host "  $(Get-UiText "Diagnostic log:" "Journal de diagnostic :") $script:TechnicalLogPath" -ForegroundColor Yellow
 } finally {
     try {
         Remove-BootstrapTools
     } catch {
         $exitCode = 1
-        Write-Host "ERROR while removing temporary tools: $($_.Exception.Message)" -ForegroundColor Red
+        Write-TechnicalLog "ERROR while removing temporary tools: $($_.Exception.ToString())"
+        Write-Host "  $(Get-UiText "Temporary-tool cleanup failed:" "Le nettoyage des outils temporaires a echoue :") $($_.Exception.Message)" -ForegroundColor Red
     }
     $env:Path = $script:OriginalPath
 
     if ($script:TranscriptStarted) {
         Stop-Transcript | Out-Null
     }
+}
+
+if ($exitCode -eq 0 -and $script:Completed) {
+    Write-FinalSuccess $script:UpdateLauncherPath $script:InstalledToDiscord
 }
 
 exit $exitCode

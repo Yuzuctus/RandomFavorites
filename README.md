@@ -43,11 +43,21 @@ Les userplugins Vencord doivent être compilés avec Vencord. Une installation V
 
 1. Sur GitHub, clique sur `Code > Download ZIP`.
 2. Extrais complètement le ZIP.
-3. Double-clique sur **`RandomFavoritesManager.cmd`**.
-4. Laisse le gestionnaire compiler, fermer Discord, injecter Vencord et le relancer.
+3. Double-clique sur **`Installer RandomFavorites.cmd`**, visible à la racine du dossier.
+4. Confirme avec `O`, puis laisse l'installateur travailler.
 5. Active **RandomFavorites** dans `Paramètres > Vencord > Plugins`.
 
-Le gestionnaire :
+Tu n'as pas besoin d'installer Git, Node.js ou pnpm toi-même. L'interface
+affiche sept grandes étapes, une barre de progression et le temps utilisé,
+sans remplir l'écran avec toutes les commandes techniques. Discord reste
+ouvert pendant la préparation ; il est fermé seulement pour l'installation
+finale, puis relancé automatiquement.
+
+Si une erreur survient, l'interface explique à quelle étape elle s'est produite
+et indique le journal de diagnostic complet. L'option `-ShowDetails` permet
+d'afficher aussi toutes les commandes pour du dépannage avancé.
+
+Sous le capot, l'installateur :
 
 - réutilise Git et Node.js lorsqu'ils sont déjà installés et compatibles ;
 - télécharge sinon des copies portables temporaires de MinGit et Node.js ;
@@ -76,14 +86,17 @@ Options utiles depuis un terminal :
 
 ```powershell
 # Installer une autre branche Discord
-RandomFavoritesManager.cmd -Branch ptb
-RandomFavoritesManager.cmd -Branch canary
+& ".\Installer RandomFavorites.cmd" -Branch ptb
+& ".\Installer RandomFavorites.cmd" -Branch canary
 
 # Choisir un autre dossier persistant
-RandomFavoritesManager.cmd -InstallRoot "D:\RandomFavoritesVencord"
+& ".\Installer RandomFavorites.cmd" -InstallRoot "D:\RandomFavoritesVencord"
 
 # Compiler sans toucher à Discord
-RandomFavoritesManager.cmd -SkipInject
+& ".\Installer RandomFavorites.cmd" -SkipInject
+
+# Afficher les commandes et sorties techniques
+& ".\Installer RandomFavorites.cmd" -ShowDetails
 ```
 
 Prérequis pour l'installation entièrement automatique : Windows 10/11
@@ -100,6 +113,25 @@ recompiler rapidement lors d'une future mise à jour. Rien n'est ajouté au
 Le gestionnaire est un script lisible. Il télécharge MinGit depuis le projet
 officiel Git for Windows, Node.js depuis `nodejs.org`, Vencord depuis son dépôt
 officiel et RandomFavorites depuis le dépôt Yuzuctus.
+
+### Organisation du ZIP
+
+Le fichier à lancer est volontairement placé à la racine :
+
+```text
+RandomFavorites/
+├─ Plugin RandomFavorites/       code du plugin
+├─ Installer RandomFavorites.cmd
+├─ README.md
+├─ LICENSE
+├─ index.tsx                     passerelle de compatibilité Vencord
+└─ scripts/                      moteur interne de l'installateur
+```
+
+Le petit `index.tsx` racine est nécessaire car Vencord ne recherche les
+userplugins qu'à un niveau de profondeur. Il ne contient aucune logique :
+il redirige simplement Vencord vers le code rangé dans
+`Plugin RandomFavorites`.
 
 ### Installation manuelle
 
@@ -134,9 +166,11 @@ Vencord/
    └─ userplugins/
       └─ randomFavorites/
          ├─ index.tsx
-         ├─ messageFormatting.ts
-         ├─ shuffleBag.ts
-         └─ uniformRandom.ts
+         └─ Plugin RandomFavorites/
+            ├─ index.tsx
+            ├─ messageFormatting.ts
+            ├─ shuffleBag.ts
+            └─ uniformRandom.ts
 ```
 
 Pour mettre le plugin à jour plus tard :
@@ -206,7 +240,7 @@ Ce dépôt est volontairement un dossier de plugin Vencord directement clonable,
 # depuis la racine du checkout Vencord qui contient ce plugin
 pnpm testTsc
 pnpm eslint src/userplugins/randomFavorites
-pnpm exec tsx --test src/userplugins/randomFavorites/*.test.ts
+pnpm exec tsx --test "src/userplugins/randomFavorites/**/*.test.ts"
 pnpm build
 ```
 
