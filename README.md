@@ -1,92 +1,51 @@
-# RandomFavorites pour Vencord
+# RandomFavorites
 
-Envoie un **GIF favori**, une **emote** ou un **sticker** aléatoire directement depuis la barre de chat Discord.
+Un plugin Vencord qui envoie un **GIF**, une **emote** ou un **sticker** aléatoire depuis Discord.
 
-## Installation
+## Installer sur Windows
 
-> Windows 10/11 et Discord Desktop sont nécessaires.
->
-> Tu n'as pas besoin d'installer Git, Node.js ou pnpm.
+1. [Télécharge **RandomFavoritesSetup.exe**](https://github.com/Yuzuctus/RandomFavorites/releases/latest/download/RandomFavoritesSetup.exe).
+2. Ouvre le fichier et choisis ta version de Discord.
+3. Clique sur **Installer**.
+4. Dans Discord, va dans `Paramètres > Vencord > Plugins` et active **RandomFavorites**.
 
-1. [Télécharge RandomFavorites au format ZIP](https://github.com/Yuzuctus/RandomFavorites/archive/refs/heads/main.zip).
-2. Extrais complètement le ZIP.
-3. Ouvre le dossier extrait.
-4. Double-clique sur **`Installer RandomFavorites.cmd`**.
-5. Confirme avec `O` et attends la fin de l'installation.
-6. Dans Discord, ouvre `Paramètres > Vencord > Plugins` et active **RandomFavorites**.
+Git, Node.js et pnpm ne sont pas nécessaires. L'installateur prépare les fichiers pendant que Discord reste ouvert, ferme Discord seulement au moment de l'installation, puis le redémarre.
 
-Discord reste ouvert pendant la préparation. Il se ferme seulement à la fin de l'installation, puis redémarre automatiquement.
+> L'application n'est pas encore signée. Si Windows SmartScreen apparaît, vérifie que le fichier vient bien de la page [Releases officielle](https://github.com/Yuzuctus/RandomFavorites/releases), puis choisis **Informations complémentaires > Exécuter quand même**.
 
-## Utilisation
+## Utiliser le plugin
 
-Un bouton en forme de dé apparaît dans la barre de chat :
+- **Clic gauche sur le dé** : effectue le tirage configuré.
+- **Clic droit sur le dé** : choisit GIF, emote, sticker et le mode de tirage.
+- **Aperçu sécurisé** : affiche le résultat dans une fenêtre privée avant tout envoi. Rien n'est envoyé tant que tu ne confirmes pas.
 
-- **Clic gauche** : envoie un élément aléatoire.
-- **Clic droit** : permet de choisir GIF, emote, sticker et le mode d'envoi.
+Les réglages sont en français si Discord est en français, sinon en anglais. Ils permettent notamment de choisir :
 
-Deux modes sont disponibles :
+- un élément de chaque type ou un seul élément parmi les types cochés ;
+- une répartition équitable (`33/33/33`, ou `50/50` avec deux types) ;
+- les spoilers et le texte `Gif random :` ;
+- toutes les emotes/stickers disponibles ou seulement les favoris ;
+- l'aperçu avant envoi et l'anti-répétition.
 
-- **Un élément de chaque type coché** : envoie par exemple un GIF, une emote et un sticker.
-- **Un seul élément** : choisit un seul type parmi ceux cochés, puis un élément de ce type.
+## Mettre à jour, réparer ou désinstaller
 
-Avec la **répartition équitable**, chaque type possède la même chance :
+Rouvre le même EXE :
 
-- GIF + emote + sticker : environ `33 %` chacun.
-- GIF + sticker : `50 %` chacun.
+- **Installer / Mettre à jour** récupère la dernière version stable ;
+- **Réparer** réapplique les fichiers après une mise à jour de Discord ;
+- **Désinstaller** peut retirer seulement RandomFavorites, Vencord en conservant ses données, ou tout supprimer.
 
-Tu peux aussi utiliser :
-
-- `/random-favorite`
-- `/random-gif`
-- `/random-emoji`
-- `/random-sticker`
-- `/random-favorite-stats`
-
-## Réglages
-
-Ouvre `Paramètres > Vencord > Plugins`, cherche **RandomFavorites**, puis clique sur la roue dentée.
-
-Tu peux notamment :
-
-- masquer les GIFs aléatoires avec un spoiler ;
-- afficher, modifier ou retirer le texte `Gif random :` ;
-- choisir les types utilisés par le clic gauche ;
-- choisir entre répartition équitable et tirage totalement aléatoire ;
-- utiliser toutes les emotes et stickers disponibles ou seulement tes favoris ;
-- éviter les répétitions.
-
-Les réglages sont en français lorsque Discord est en français, sinon ils sont affichés en anglais.
-
-## Mise à jour
-
-Pour mettre à jour **RandomFavorites et Vencord** :
-
-1. Appuie sur `Windows + R`.
-2. Colle :
-
-   ```text
-   %LOCALAPPDATA%\RandomFavoritesVencord
-   ```
-
-3. Double-clique sur **`Update RandomFavorites.cmd`**.
-
-Tu peux aussi relancer cette mise à jour si une mise à jour de Discord retire Vencord.
-
-## En cas de problème
-
-- Vérifie que **RandomFavorites** est activé dans les plugins Vencord.
-- Relance `Update RandomFavorites.cmd`.
-- Si l'installation affiche une erreur, garde une capture de la fenêtre.
-- Le chemin du journal de diagnostic est affiché en bas de la fenêtre.
+Les réglages non concernés sont conservés. Une sauvegarde est créée avant de retirer les réglages RandomFavorites.
 
 ## Sécurité
 
-- Aucun token Discord n'est lu ou enregistré.
-- Aucune télémétrie n'est ajoutée.
-- Aucune liste de favoris externe n'est créée.
-- Les outils de compilation manquants sont utilisés temporairement puis supprimés.
-- Rien n'est envoyé sans un clic sur le bouton ou une commande.
+- aucun token Discord lu, stocké ou transmis ;
+- aucune télémétrie ni publicité ;
+- rien n'est envoyé sans clic, commande ou confirmation explicite ;
+- les téléchargements de l'installateur sont vérifiés par SHA-256.
 
-RandomFavorites est un plugin tiers indépendant publié par **Yuzuctus**. Il ne fait pas partie du dépôt officiel de Vencord.
+RandomFavorites est un plugin tiers indépendant de Vencord, publié sous licence `GPL-3.0-or-later`.
 
-Licence : `GPL-3.0-or-later`.
+### Ancienne installation par script
+
+Le fichier `Installer RandomFavorites.cmd` reste disponible comme méthode de secours pour les développeurs et le dépannage. La méthode recommandée pour les utilisateurs est l'EXE de la page Releases.

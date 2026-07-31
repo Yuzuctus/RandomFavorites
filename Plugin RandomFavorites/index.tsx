@@ -4,6 +4,8 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
+import "./styles.css";
+
 import { ChatBarButton, ChatBarButtonFactory } from "@api/ChatButtons";
 import {
     ApplicationCommandInputType,
@@ -15,7 +17,8 @@ import { definePluginSettings } from "@api/Settings";
 import { sendMessage } from "@utils/discord";
 import { Logger } from "@utils/Logger";
 import definePlugin, { OptionType } from "@utils/types";
-import { Channel, Command, Emoji, Sticker } from "@vencord/discord-types";
+import { Channel, Command, Emoji, RenderModalProps, Sticker } from "@vencord/discord-types";
+import { findByPropsLazy } from "@webpack";
 import {
     ContextMenuApi,
     EmojiStore,
@@ -23,16 +26,23 @@ import {
     LocaleStore,
     Menu,
     MessageActions,
+    Modal,
+    openModal,
+    Parser,
     PendingReplyStore,
     PermissionsBits,
     PermissionStore,
     showToast,
     StickersStore,
     Toasts,
+    useEffect,
+    useRef,
     UserSettingsActionCreators,
+    useState,
 } from "@webpack/common";
 
 import { formatGifContent } from "./messageFormatting";
+import { buildSelectionPlan } from "./selectionPlan";
 import { ShuffleBag } from "./shuffleBag";
 import { pickUniform } from "./uniformRandom";
 
@@ -70,6 +80,8 @@ interface FavoriteCandidate {
     key: string;
     label: string;
     content?: string;
+    previewType?: "image" | "lottie";
+    previewUrl?: string;
     stickerId?: string;
 }
 
@@ -87,7 +99,21 @@ interface SelectedSendResult {
     errors: string[];
 }
 
+interface FavoriteDrawResult {
+    candidates: FavoriteCandidate[];
+    errors: string[];
+}
+
 const logger = new Logger("RandomFavorites");
+const LottiePlayer = findByPropsLazy("loadAnimation") as {
+    loadAnimation(options: {
+        autoplay: boolean;
+        container: HTMLElement;
+        loop: boolean;
+        path: string;
+        renderer: "svg";
+    }): { destroy(): void; };
+};
 const activeChannels = new Set<string>();
 const concreteKinds: ConcreteFavoriteKind[] = ["gif", "emoji", "sticker"];
 
@@ -111,6 +137,19 @@ const settings = definePluginSettings({
             );
         },
         default: true,
+    },
+    previewBeforeSend: {
+        type: OptionType.BOOLEAN,
+        get displayName() {
+            return localize("Safe preview before sending", "Aperçu sécurisé avant envoi");
+        },
+        get description() {
+            return localize(
+                "Show the random selection privately and wait for confirmation before sending it.",
+                "Affiche le tirage en privé et attend une confirmation avant de l'envoyer.",
+            );
+        },
+        default: false,
     },
     maskGifs: {
         type: OptionType.BOOLEAN,
@@ -438,6 +477,7 @@ function collectGifs(frecency: FrecencySettings): {
             key,
             label: url,
             content: url,
+            previewUrl: url,
         });
     }
 
@@ -531,6 +571,21 @@ function isUsableSticker(sticker: Sticker, channel: Channel) {
     );
 }
 
+function getStickerPreview(sticker: Sticker): Pick<FavoriteCandidate, "previewType" | "previewUrl"> {
+    if (sticker.format_type === 4) {
+        return {
+            previewType: "image",
+            previewUrl: `https:${window.GLOBAL_ENV.MEDIA_PROXY_ENDPOINT}/stickers/${sticker.id}.gif?size=320&lossless=true`,
+        };
+    }
+
+    const isLottie = sticker.format_type === 3;
+    return {
+        previewType: isLottie ? "lottie" : "image",
+        previewUrl: `https://${window.GLOBAL_ENV.CDN_HOST}/stickers/${sticker.id}.${isLottie ? "json" : "png"}?size=320&lossless=true`,
+    };
+}
+
 function collectStickers(frecency: FrecencySettings, channel: Channel): {
     candidates: FavoriteCandidate[];
     rawCount: number;
@@ -551,6 +606,7 @@ function collectStickers(frecency: FrecencySettings, channel: Channel): {
 
             const key = `sticker:${sticker.id}`;
             uniqueCandidates.set(key, {
+                ...getStickerPreview(sticker),
                 kind: "sticker",
                 key,
                 label: sticker.name,
@@ -571,6 +627,7 @@ function collectStickers(frecency: FrecencySettings, channel: Channel): {
 
         const key = `sticker:${stickerId}`;
         uniqueCandidates.set(key, {
+            ...getStickerPreview(sticker),
             kind: "sticker",
             key,
             label: sticker.name,
@@ -725,73 +782,32 @@ async function sendCandidate(candidate: FavoriteCandidate, channel: Channel) {
     });
 }
 
-async function sendRandomFavorite(
-    kind: FavoriteKind,
-    channel: Channel,
-): Promise<SendResult> {
-    if (activeChannels.has(channel.id)) {
+function drawRandomFavorite(kind: FavoriteKind, channel: Channel): FavoriteDrawResult {
+    const pools = collectFavoritePools(kind, channel);
+    if (!pools) {
         return {
-            ok: false,
-            message: localize(
-                "A random favorite is already being sent in this channel.",
-                "Un favori aléatoire est déjà en cours d'envoi dans ce salon.",
-            ),
+            candidates: [],
+            errors: [localize(
+                "Discord has not loaded your synced favorites yet. Open an expression picker once, then try again.",
+                "Discord n'a pas encore chargé tes favoris synchronisés. Ouvre une fois un sélecteur d'expressions, puis réessaie.",
+            )],
         };
     }
 
-    if (!canSendMessages(channel)) {
-        return {
-            ok: false,
-            message: localize(
-                "You do not have permission to send messages in this channel.",
-                "Tu n'as pas la permission d'envoyer des messages dans ce salon.",
-            ),
-        };
-    }
-
-    activeChannels.add(channel.id);
-
-    try {
-        const pools = collectFavoritePools(kind, channel);
-        if (!pools) {
-            return {
-                ok: false,
-                message: localize(
-                    "Discord has not loaded your synced favorites yet. Open an expression picker once, then try again.",
-                    "Discord n'a pas encore chargé tes favoris synchronisés. Ouvre une fois un sélecteur d'expressions, puis réessaie.",
-                ),
-            };
-        }
-
-        const candidate = pickCandidate(kind, pools);
-        if (!candidate)
-            return { ok: false, message: noCandidateMessage(kind, pools) };
-
-        await sendCandidate(candidate, channel);
-        return { ok: true, candidate };
-    } catch (error) {
-        logger.error(`Failed to send a random ${kind}`, error);
-
-        return {
-            ok: false,
-            message: localize(
-                "Discord refused to send this favorite. It may have been deleted or become unavailable.",
-                "Discord a refusé d'envoyer ce favori. Il a peut-être été supprimé ou n'est plus disponible.",
-            ),
-        };
-    } finally {
-        activeChannels.delete(channel.id);
-    }
+    const candidate = pickCandidate(kind, pools);
+    return candidate
+        ? { candidates: [candidate], errors: [] }
+        : { candidates: [], errors: [noCandidateMessage(kind, pools)] };
 }
 
-async function sendSelectedFavorites(
+function drawSelectedFavorites(
     kinds: readonly ConcreteFavoriteKind[],
     sendEachSelectedType: boolean,
     channel: Channel,
-): Promise<SelectedSendResult> {
+): FavoriteDrawResult {
     if (kinds.length === 0) {
         return {
-            sentCount: 0,
+            candidates: [],
             errors: [localize(
                 "Select at least one type with a right click first.",
                 "Sélectionne d'abord au moins un type avec un clic droit.",
@@ -799,6 +815,35 @@ async function sendSelectedFavorites(
         };
     }
 
+    const pools = collectFavoritePools("all", channel);
+    if (!pools) {
+        return {
+            candidates: [],
+            errors: [localize(
+                "Discord has not loaded your synced favorites yet. Open an expression picker once, then try again.",
+                "Discord n'a pas encore chargé tes favoris synchronisés. Ouvre une fois un sélecteur d'expressions, puis réessaie.",
+            )],
+        };
+    }
+
+    const plan = buildSelectionPlan(
+        kinds,
+        sendEachSelectedType,
+        kind => pickFromKind(kind, pools),
+        selectedKinds => pickCandidateFromKinds(selectedKinds, pools),
+    );
+    const errors = plan.missingKinds.map(kind => noCandidateMessage(kind, pools));
+
+    if (!sendEachSelectedType && plan.candidates.length === 0)
+        errors.push(noCandidateMessageForKinds(kinds, pools));
+
+    return { candidates: plan.candidates, errors };
+}
+
+async function sendPreparedFavorites(
+    candidates: readonly FavoriteCandidate[],
+    channel: Channel,
+): Promise<SelectedSendResult> {
     if (activeChannels.has(channel.id)) {
         return {
             sentCount: 0,
@@ -822,42 +867,10 @@ async function sendSelectedFavorites(
     activeChannels.add(channel.id);
 
     try {
-        const pools = collectFavoritePools("all", channel);
-        if (!pools) {
-            return {
-                sentCount: 0,
-                errors: [localize(
-                    "Discord has not loaded your synced favorites yet. Open an expression picker once, then try again.",
-                    "Discord n'a pas encore chargé tes favoris synchronisés. Ouvre une fois un sélecteur d'expressions, puis réessaie.",
-                )],
-            };
-        }
-
         let sentCount = 0;
         const errors: string[] = [];
-        const selectedCandidates: FavoriteCandidate[] = [];
 
-        if (sendEachSelectedType) {
-            for (const kind of kinds) {
-                const candidate = pickFromKind(kind, pools);
-                if (candidate)
-                    selectedCandidates.push(candidate);
-                else
-                    errors.push(noCandidateMessage(kind, pools));
-            }
-        } else {
-            const candidate = pickCandidateFromKinds(kinds, pools);
-            if (!candidate) {
-                return {
-                    sentCount: 0,
-                    errors: [noCandidateMessageForKinds(kinds, pools)],
-                };
-            }
-
-            selectedCandidates.push(candidate);
-        }
-
-        for (const candidate of selectedCandidates) {
+        for (const candidate of candidates) {
             try {
                 await sendCandidate(candidate, channel);
                 sentCount++;
@@ -879,16 +892,241 @@ async function sendSelectedFavorites(
     }
 }
 
+async function sendRandomFavorite(
+    kind: FavoriteKind,
+    channel: Channel,
+): Promise<SendResult> {
+    const draw = drawRandomFavorite(kind, channel);
+    if (draw.candidates.length === 0)
+        return { ok: false, message: draw.errors[0] };
+
+    const result = await sendPreparedFavorites(draw.candidates, channel);
+    return result.sentCount > 0
+        ? { ok: true, candidate: draw.candidates[0] }
+        : { ok: false, message: result.errors[0] };
+}
+
+async function sendSelectedFavorites(
+    kinds: readonly ConcreteFavoriteKind[],
+    sendEachSelectedType: boolean,
+    channel: Channel,
+): Promise<SelectedSendResult> {
+    const draw = drawSelectedFavorites(kinds, sendEachSelectedType, channel);
+    if (draw.candidates.length === 0)
+        return { sentCount: 0, errors: draw.errors };
+
+    const result = await sendPreparedFavorites(draw.candidates, channel);
+    return {
+        sentCount: result.sentCount,
+        errors: [...draw.errors, ...result.errors],
+    };
+}
+
+function showDrawErrors(errors: readonly string[]) {
+    if (errors.length > 0)
+        showToast(errors.join("\n"), Toasts.Type.FAILURE);
+}
+
+function previewKindLabel(kind: ConcreteFavoriteKind) {
+    const labels: Record<ConcreteFavoriteKind, [string, string]> = {
+        gif: ["Random GIF", "GIF aléatoire"],
+        emoji: ["Random emoji", "Emote aléatoire"],
+        sticker: ["Random sticker", "Sticker aléatoire"],
+    };
+
+    return localize(...labels[kind]);
+}
+
+function LottieStickerPreview({ label, url }: { label: string; url: string; }) {
+    const containerRef = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+        if (!containerRef.current) return;
+
+        const animation = LottiePlayer.loadAnimation({
+            autoplay: true,
+            container: containerRef.current,
+            loop: true,
+            path: url,
+            renderer: "svg",
+        });
+
+        return () => animation.destroy();
+    }, [url]);
+
+    return (
+        <div
+            ref={containerRef}
+            role="img"
+            aria-label={label}
+            className="vc-rf-preview-lottie"
+        />
+    );
+}
+
+function FavoritePreviewCard({ candidate }: { candidate: FavoriteCandidate; }) {
+    return (
+        <article className="vc-rf-preview-card">
+            <div className="vc-rf-preview-media">
+                {candidate.previewUrl && candidate.previewType === "lottie" ? (
+                    <LottieStickerPreview label={candidate.label} url={candidate.previewUrl} />
+                ) : candidate.previewUrl ? (
+                    <img
+                        src={candidate.previewUrl}
+                        alt={candidate.label}
+                        className="vc-rf-preview-image"
+                    />
+                ) : candidate.kind === "emoji" && candidate.content ? (
+                    <div className="vc-rf-preview-emoji">
+                        {Parser.parse(candidate.content)}
+                    </div>
+                ) : (
+                    <div className="vc-rf-preview-fallback">
+                        <RandomFavoritesIcon height={64} width={64} />
+                    </div>
+                )}
+            </div>
+            <div className="vc-rf-preview-meta">
+                <strong>{previewKindLabel(candidate.kind)}</strong>
+                <span title={candidate.label}>{candidate.label}</span>
+            </div>
+        </article>
+    );
+}
+
+function RandomFavoritesPreviewModal({
+    channel,
+    drawAgain,
+    initialDraw,
+    modalProps,
+}: {
+    channel: Channel;
+    drawAgain: () => FavoriteDrawResult;
+    initialDraw: FavoriteDrawResult;
+    modalProps: RenderModalProps;
+}) {
+    const [candidates, setCandidates] = useState(initialDraw.candidates);
+    const [isSending, setIsSending] = useState(false);
+
+    function reroll() {
+        const draw = drawAgain();
+        showDrawErrors(draw.errors);
+        if (draw.candidates.length > 0)
+            setCandidates(draw.candidates);
+    }
+
+    async function confirmSend() {
+        setIsSending(true);
+        try {
+            const result = await sendPreparedFavorites(candidates, channel);
+            showDrawErrors(result.errors);
+            if (result.sentCount > 0)
+                modalProps.onClose();
+        } finally {
+            setIsSending(false);
+        }
+    }
+
+    return (
+        <Modal
+            {...modalProps}
+            title={localize("Safe random preview", "Aperçu aléatoire sécurisé")}
+            subtitle={localize(
+                "Nothing will be sent until you confirm this selection.",
+                "Rien ne sera envoyé avant ta confirmation.",
+            )}
+            actions={[
+                {
+                    text: localize("Cancel", "Annuler"),
+                    variant: "secondary",
+                    disabled: isSending,
+                    onClick: modalProps.onClose,
+                },
+                {
+                    text: localize("Draw again", "Relancer"),
+                    variant: "secondary",
+                    disabled: isSending,
+                    onClick: reroll,
+                },
+                {
+                    text: isSending
+                        ? localize("Sending…", "Envoi…")
+                        : localize(
+                            candidates.length > 1 ? `Send ${candidates.length} items` : "Send",
+                            candidates.length > 1 ? `Envoyer les ${candidates.length} éléments` : "Envoyer",
+                        ),
+                    variant: "primary",
+                    disabled: isSending || candidates.length === 0,
+                    onClick: () => void confirmSend(),
+                },
+            ]}
+        >
+            <div
+                className={`vc-rf-preview-grid${candidates.length === 1 ? " vc-rf-preview-grid-single" : ""}`}
+            >
+                {candidates.map(candidate => (
+                    <FavoritePreviewCard candidate={candidate} key={candidate.key} />
+                ))}
+            </div>
+            <p className="vc-rf-preview-hint">
+                {localize(
+                    "Draw again changes the private selection without posting anything.",
+                    "Relancer change uniquement l'aperçu privé, sans rien publier.",
+                )}
+            </p>
+        </Modal>
+    );
+}
+
+function openFavoritePreview(channel: Channel, drawAgain: () => FavoriteDrawResult) {
+    if (!canSendMessages(channel)) {
+        showDrawErrors([localize(
+            "You do not have permission to send messages in this channel.",
+            "Tu n'as pas la permission d'envoyer des messages dans ce salon.",
+        )]);
+        return;
+    }
+
+    const initialDraw = drawAgain();
+    showDrawErrors(initialDraw.errors);
+    if (initialDraw.candidates.length === 0) return;
+
+    openModal(modalProps => (
+        <RandomFavoritesPreviewModal
+            channel={channel}
+            drawAgain={drawAgain}
+            initialDraw={initialDraw}
+            modalProps={modalProps}
+        />
+    ));
+}
+
 async function runFromCommand(kind: FavoriteKind, channel: Channel) {
+    if (settings.store.previewBeforeSend) {
+        openFavoritePreview(channel, () => drawRandomFavorite(kind, channel));
+        return;
+    }
+
     const result = await sendRandomFavorite(kind, channel);
     if (!result.ok)
         sendBotMessage(channel.id, { content: `🎲 ${result.message}` });
 }
 
 async function runSelectedFromButton(channel: Channel) {
+    const kinds = selectedLeftClickKinds();
+    const { sendEachSelectedType } = settings.store;
+
+    if (settings.store.previewBeforeSend) {
+        openFavoritePreview(
+            channel,
+            () => drawSelectedFavorites(kinds, sendEachSelectedType, channel),
+        );
+        return;
+    }
+
     const result = await sendSelectedFavorites(
-        selectedLeftClickKinds(),
-        settings.store.sendEachSelectedType,
+        kinds,
+        sendEachSelectedType,
         channel,
     );
     if (result.errors.length > 0)
@@ -954,6 +1192,7 @@ function RandomFavoritesIcon({
 
 function RandomFavoritesMenu({ channel }: { channel: Channel; }) {
     const selection = settings.use([
+        "previewBeforeSend",
         "sendEachSelectedType",
         "mixMode",
         "sendGifsOnLeftClick",
@@ -970,6 +1209,18 @@ function RandomFavoritesMenu({ channel }: { channel: Channel; }) {
             <Menu.MenuGroup
                 label={localize("Left-click mode", "Mode du clic gauche")}
             >
+                <Menu.MenuCheckboxItem
+                    id="random-favorites-safe-preview"
+                    label={localize(
+                        "Safe preview before sending",
+                        "Aperçu sécurisé avant envoi",
+                    )}
+                    checked={selection.previewBeforeSend}
+                    dontCloseOnAction
+                    action={() =>
+                        settings.store.previewBeforeSend = !selection.previewBeforeSend
+                    }
+                />
                 <Menu.MenuCheckboxItem
                     id="random-favorites-send-each"
                     label={localize(
@@ -1066,6 +1317,7 @@ const RandomFavoritesButton: ChatBarButtonFactory = ({
 }) => {
     const pluginSettings = settings.use([
         "showChatBarButton",
+        "previewBeforeSend",
         "sendEachSelectedType",
         "mixMode",
         "sendGifsOnLeftClick",
@@ -1082,7 +1334,7 @@ const RandomFavoritesButton: ChatBarButtonFactory = ({
 
     const selectedKinds = selectedLeftClickKinds();
     const selectionLabel = selectedKindsLabel(selectedKinds);
-    const tooltip = pluginSettings.sendEachSelectedType
+    const actionTooltip = pluginSettings.sendEachSelectedType
         ? localize(
             `Send one of each: ${selectionLabel} · Right-click to configure`,
             `Envoyer un de chaque : ${selectionLabel} · Clic droit pour configurer`,
@@ -1096,6 +1348,12 @@ const RandomFavoritesButton: ChatBarButtonFactory = ({
                 `Send one among: ${selectionLabel} · Right-click to configure`,
                 `Envoyer un seul parmi : ${selectionLabel} · Clic droit pour configurer`,
             );
+    const tooltip = pluginSettings.previewBeforeSend
+        ? localize(
+            `Preview safely: ${selectionLabel} · Right-click to configure`,
+            `Prévisualiser sans risque : ${selectionLabel} · Clic droit pour configurer`,
+        )
+        : actionTooltip;
 
     return (
         <ChatBarButton

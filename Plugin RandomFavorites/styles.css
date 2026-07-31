@@ -1,0 +1,91 @@
+/*
+ * Vencord, a Discord client mod
+ * Copyright (c) 2026 Vendicated and contributors
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ */
+
+.vc-rf-preview-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+    gap: 12px;
+}
+
+.vc-rf-preview-grid-single {
+    grid-template-columns: minmax(240px, 420px);
+    justify-content: center;
+}
+
+.vc-rf-preview-card {
+    min-width: 0;
+    overflow: hidden;
+    background: var(--background-secondary);
+    border: 1px solid var(--border-subtle);
+    border-radius: 12px;
+}
+
+.vc-rf-preview-media {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 190px;
+    max-height: 320px;
+    padding: 12px;
+    overflow: hidden;
+    background:
+        radial-gradient(circle at 50% 30%, rgb(88 101 242 / 18%), transparent 58%),
+        var(--background-tertiary);
+}
+
+.vc-rf-preview-image {
+    display: block;
+    max-width: 100%;
+    max-height: 296px;
+    object-fit: contain;
+    border-radius: 8px;
+}
+
+.vc-rf-preview-lottie {
+    width: min(100%, 260px);
+    height: 260px;
+}
+
+.vc-rf-preview-emoji,
+.vc-rf-preview-fallback {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 112px;
+    min-height: 112px;
+    color: var(--brand-500);
+    font-size: 80px;
+    line-height: 1;
+}
+
+.vc-rf-preview-emoji img {
+    width: 96px;
+    height: 96px;
+    object-fit: contain;
+}
+
+.vc-rf-preview-meta {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    padding: 12px 14px 14px;
+    color: var(--text-normal);
+}
+
+.vc-rf-preview-meta span {
+    overflow: hidden;
+    color: var(--text-muted);
+    font-size: 12px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.vc-rf-preview-hint {
+    margin: 14px 2px 0;
+    color: var(--text-muted);
+    font-size: 12px;
+    text-align: center;
+}
