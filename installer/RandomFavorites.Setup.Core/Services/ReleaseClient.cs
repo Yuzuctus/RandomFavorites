@@ -172,40 +172,42 @@ public sealed class ReleaseClient : IDisposable
         response.EnsureSuccessStatusCode();
 
         var totalBytes = response.Content.Headers.ContentLength;
-        await using var source = await response.Content.ReadAsStreamAsync(cancellationToken);
-        await using var destinationStream = new FileStream(
-            partPath,
-            FileMode.Create,
-            FileAccess.Write,
-            FileShare.None,
-            bufferSize: 1024 * 128,
-            useAsync: true);
-
-        var buffer = new byte[1024 * 128];
-        long downloaded = 0;
-        var stopwatch = Stopwatch.StartNew();
-        while (true)
+        await using (var source = await response.Content.ReadAsStreamAsync(cancellationToken))
+        await using (var destinationStream = new FileStream(
+                         partPath,
+                         FileMode.Create,
+                         FileAccess.Write,
+                         FileShare.None,
+                         bufferSize: 1024 * 128,
+                         useAsync: true))
         {
-            var count = await source.ReadAsync(buffer, cancellationToken);
-            if (count == 0) break;
+            var buffer = new byte[1024 * 128];
+            long downloaded = 0;
+            var stopwatch = Stopwatch.StartNew();
+            while (true)
+            {
+                var count = await source.ReadAsync(buffer, cancellationToken);
+                if (count == 0) break;
 
-            await destinationStream.WriteAsync(buffer.AsMemory(0, count), cancellationToken);
-            downloaded += count;
+                await destinationStream.WriteAsync(buffer.AsMemory(0, count), cancellationToken);
+                downloaded += count;
 
-            var ratio = totalBytes is > 0 ? (double)downloaded / totalBytes.Value : 0;
-            var megabytes = downloaded / 1024d / 1024d;
-            var speed = megabytes / Math.Max(stopwatch.Elapsed.TotalSeconds, 0.1);
-            var totalLabel = totalBytes is > 0
-                ? $" / {totalBytes.Value / 1024d / 1024d:0.0} Mo"
-                : "";
-            progress?.Report(new InstallerProgress(
-                0.08 + ratio * 0.36,
-                stage,
-                $"{megabytes:0.0}{totalLabel} · {speed:0.0} Mo/s",
-                totalBytes is null));
+                var ratio = totalBytes is > 0 ? (double)downloaded / totalBytes.Value : 0;
+                var megabytes = downloaded / 1024d / 1024d;
+                var speed = megabytes / Math.Max(stopwatch.Elapsed.TotalSeconds, 0.1);
+                var totalLabel = totalBytes is > 0
+                    ? $" / {totalBytes.Value / 1024d / 1024d:0.0} Mo"
+                    : "";
+                progress?.Report(new InstallerProgress(
+                    0.08 + ratio * 0.36,
+                    stage,
+                    $"{megabytes:0.0}{totalLabel} · {speed:0.0} Mo/s",
+                    totalBytes is null));
+            }
+
+            await destinationStream.FlushAsync(cancellationToken);
         }
 
-        await destinationStream.FlushAsync(cancellationToken);
         File.Move(partPath, destination, overwrite: true);
     }
 
