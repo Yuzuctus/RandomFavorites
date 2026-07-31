@@ -1,0 +1,101 @@
+name: Compatibility and installer tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 5 * * 1"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  vencord-compatibility:
+    name: Current Vencord compatibility
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out RandomFavorites
+        uses: actions/checkout@v5
+        with:
+          path: random-favorites
+
+      - name: Check out current Vencord
+        uses: actions/checkout@v5
+        with:
+          repository: Vendicated/Vencord
+          path: vencord
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+
+      - name: Enable Vencord's pinned pnpm
+        working-directory: vencord
+        run: corepack enable && corepack install
+
+      - name: Add RandomFavorites as a userplugin
+        run: |
+          mkdir -p vencord/src/userplugins/randomFavorites
+          cp random-favorites/index.tsx vencord/src/userplugins/randomFavorites/index.tsx
+          cp -R "random-favorites/Plugin RandomFavorites" "vencord/src/userplugins/randomFavorites/Plugin RandomFavorites"
+
+      - name: Install exact Vencord dependencies
+        working-directory: vencord
+        run: pnpm install --frozen-lockfile
+
+      - name: Run RandomFavorites unit tests
+        working-directory: vencord
+        run: pnpm exec tsx --test "src/userplugins/randomFavorites/**/*.test.ts"
+
+      - name: Lint RandomFavorites
+        working-directory: vencord
+        run: pnpm eslint src/userplugins/randomFavorites
+
+      - name: Type-check Vencord and RandomFavorites
+        working-directory: vencord
+        run: pnpm testTsc
+
+      - name: Build production Vencord
+        working-directory: vencord
+        run: pnpm build
+
+  windows-installer:
+    name: Windows installer
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out RandomFavorites
+        uses: actions/checkout@v5
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Build the installer
+        run: dotnet build installer/RandomFavorites.Setup/RandomFavorites.Setup.csproj -c Release
+
+      - name: Run installer safety smoke tests
+        run: dotnet run --project installer/RandomFavorites.Setup.SmokeTests/RandomFavorites.Setup.SmokeTests.csproj -c Release
+
+      - name: Publish the self-contained EXE
+        run: >-
+          dotnet publish installer/RandomFavorites.Setup/RandomFavorites.Setup.csproj
+          -c Release -r win-x64 --self-contained true
+          -o artifacts/setup
+
+      - name: Upload test executable
+        uses: actions/upload-artifact@v5
+        with:
+          name: RandomFavoritesSetup-ci
+          path: artifacts/setup/RandomFavoritesSetup.exe
+          if-no-files-found: error
+          retention-days: 7

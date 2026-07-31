@@ -1,0 +1,172 @@
+name: Publish stable release
+
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build and publish ${{ github.ref_name }}
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - name: Check out RandomFavorites
+        uses: actions/checkout@v5
+        with:
+          path: random-favorites
+
+      - name: Check out current official Vencord
+        uses: actions/checkout@v5
+        with:
+          repository: Vendicated/Vencord
+          path: vencord
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Enable Vencord's pinned pnpm
+        working-directory: vencord
+        shell: pwsh
+        run: |
+          corepack enable
+          corepack install
+
+      - name: Add RandomFavorites as a userplugin
+        shell: pwsh
+        run: |
+          $destination = "vencord/src/userplugins/randomFavorites"
+          New-Item -ItemType Directory -Force -Path $destination | Out-Null
+          Copy-Item -LiteralPath random-favorites/index.tsx -Destination $destination
+          Copy-Item -LiteralPath "random-favorites/Plugin RandomFavorites" -Destination $destination -Recurse
+
+      - name: Install exact dependencies
+        working-directory: vencord
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify plugin tests, lint, and types
+        working-directory: vencord
+        shell: pwsh
+        run: |
+          pnpm exec tsx --test "src/userplugins/randomFavorites/**/*.test.ts"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          pnpm eslint src/userplugins/randomFavorites
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          pnpm testTsc
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Build custom Vencord
+        working-directory: vencord
+        run: pnpm build
+
+      - name: Build verified release bundle
+        shell: pwsh
+        run: |
+          $releaseRoot = Join-Path $PWD "release-assets"
+          $bundleRoot = Join-Path $releaseRoot "bundle"
+          $distRoot = Join-Path $bundleRoot "dist"
+          $toolsRoot = Join-Path $bundleRoot "tools"
+          $licensesRoot = Join-Path $bundleRoot "licenses"
+          New-Item -ItemType Directory -Force -Path $distRoot, $toolsRoot, $licensesRoot | Out-Null
+
+          Get-ChildItem -LiteralPath vencord/dist -File |
+            Where-Object { $_.Name -match '^(package\.json|patcher\.|preload\.|renderer\.)' } |
+            Copy-Item -Destination $distRoot -Force
+
+          Invoke-WebRequest `
+            -Uri "https://github.com/Vencord/Installer/releases/latest/download/VencordInstallerCli.exe" `
+            -OutFile (Join-Path $toolsRoot "VencordInstallerCli.exe") `
+            -UseBasicParsing
+          Invoke-WebRequest `
+            -Uri "https://github.com/Vencord/Installer/releases/latest/download/checksums.sha256" `
+            -OutFile (Join-Path $toolsRoot "checksums.sha256") `
+            -UseBasicParsing
+          $checksumLine = Get-Content -LiteralPath (Join-Path $toolsRoot "checksums.sha256") |
+            Where-Object { $_ -match '\sVencordInstallerCli\.exe$' } |
+            Select-Object -First 1
+          if (-not $checksumLine) { throw "VencordInstallerCli.exe is missing from the official checksum file." }
+          $expectedInstallerHash = ($checksumLine -split '\s+')[0]
+          $actualInstallerHash = (Get-FileHash `
+            -LiteralPath (Join-Path $toolsRoot "VencordInstallerCli.exe") `
+            -Algorithm SHA256).Hash
+          if ($actualInstallerHash -ne $expectedInstallerHash) {
+            throw "The official Vencord installer checksum does not match."
+          }
+          Remove-Item -LiteralPath (Join-Path $toolsRoot "checksums.sha256")
+          Invoke-WebRequest `
+            -Uri "https://raw.githubusercontent.com/Vencord/Installer/main/LICENSE" `
+            -OutFile (Join-Path $licensesRoot "Vencord-Installer-LICENSE") `
+            -UseBasicParsing
+
+          Copy-Item -LiteralPath vencord/LICENSE -Destination (Join-Path $licensesRoot "Vencord-LICENSE")
+          Copy-Item -LiteralPath random-favorites/LICENSE -Destination (Join-Path $licensesRoot "RandomFavorites-LICENSE")
+          Copy-Item -LiteralPath random-favorites/installer/THIRD_PARTY_NOTICES.md -Destination $bundleRoot
+
+          $manifest = [ordered]@{
+            version = $env:GITHUB_REF_NAME
+            vencordCommit = (git -C vencord rev-parse HEAD).Trim()
+            pluginCommit = (git -C random-favorites rev-parse HEAD).Trim()
+            builtAtUtc = [DateTimeOffset]::UtcNow.ToString("o")
+            requiredFiles = @(
+              "dist/patcher.js",
+              "dist/preload.js",
+              "dist/renderer.js",
+              "dist/renderer.css",
+              "tools/VencordInstallerCli.exe"
+            )
+          }
+          $manifest | ConvertTo-Json -Depth 4 |
+            Set-Content -LiteralPath (Join-Path $bundleRoot "manifest.json") -Encoding utf8
+
+          $bundlePath = Join-Path $releaseRoot "RandomFavoritesBundle.zip"
+          Compress-Archive -Path (Join-Path $bundleRoot "*") -DestinationPath $bundlePath -CompressionLevel Optimal
+          $hash = (Get-FileHash -LiteralPath $bundlePath -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  RandomFavoritesBundle.zip" |
+            Set-Content -LiteralPath "$bundlePath.sha256" -Encoding ascii -NoNewline
+
+      - name: Build self-contained installer
+        shell: pwsh
+        run: |
+          $version = $env:GITHUB_REF_NAME.TrimStart("v")
+          dotnet publish random-favorites/installer/RandomFavorites.Setup/RandomFavorites.Setup.csproj `
+            -c Release -r win-x64 --self-contained true `
+            -p:Version=$version `
+            -o release-assets/setup
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Copy-Item -LiteralPath release-assets/setup/RandomFavoritesSetup.exe `
+            -Destination release-assets/RandomFavoritesSetup.exe
+          $setupPath = Join-Path $PWD "release-assets/RandomFavoritesSetup.exe"
+          $setupHash = (Get-FileHash -LiteralPath $setupPath -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$setupHash  RandomFavoritesSetup.exe" |
+            Set-Content -LiteralPath "$setupPath.sha256" -Encoding ascii -NoNewline
+
+      - name: Run installer safety smoke tests
+        run: >-
+          dotnet run
+          --project random-favorites/installer/RandomFavorites.Setup.SmokeTests/RandomFavorites.Setup.SmokeTests.csproj
+          -c Release
+
+      - name: Publish GitHub Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create $env:GITHUB_REF_NAME `
+            release-assets/RandomFavoritesSetup.exe `
+            release-assets/RandomFavoritesSetup.exe.sha256 `
+            release-assets/RandomFavoritesBundle.zip `
+            release-assets/RandomFavoritesBundle.zip.sha256 `
+            --repo $env:GITHUB_REPOSITORY `
+            --title "RandomFavorites $env:GITHUB_REF_NAME" `
+            --generate-notes `
+            --verify-tag
