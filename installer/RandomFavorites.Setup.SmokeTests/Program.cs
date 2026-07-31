@@ -1,5 +1,6 @@
-using System.Text.Json.Nodes;
+using System.Security.Cryptography;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using RandomFavorites.Setup.Core;
 using RandomFavorites.Setup.Core.Services;
 
@@ -7,6 +8,7 @@ var tests = new (string Name, Action Run)[]
 {
     ("checksum parser accepts GitHub checksum files", TestChecksumParser),
     ("checksum parser selects the requested release asset", TestNamedChecksumParser),
+    ("downloaded bundle is moved only after its stream is released", TestDownloadReleasesFile),
     ("safe deletion guard rejects broad and sibling paths", TestSafeDeleteGuard),
     ("installer state rejects payload paths outside its version directory", TestStatePathGuard),
     ("settings cleanup removes only RandomFavorites and creates a backup", TestSettingsCleanup),
@@ -46,6 +48,40 @@ static void TestNamedChecksumParser()
     Assert(ReleaseClient.ParseSha256ForFile(checksums, "VencordInstallerCli.exe") == expected);
     AssertThrows<InvalidDataException>(() =>
         ReleaseClient.ParseSha256ForFile(checksums, "missing.exe"));
+}
+
+static void TestDownloadReleasesFile()
+{
+    var temporary = Path.Combine(Path.GetTempPath(), $"randomfavorites-download-{Guid.NewGuid():N}");
+    var layout = new InstallerLayout(
+        Path.Combine(temporary, "local"),
+        Path.Combine(temporary, "roaming"));
+    var payload = "release bundle bytes"u8.ToArray();
+    var hash = Convert.ToHexString(SHA256.HashData(payload)).ToLowerInvariant();
+
+    try
+    {
+        using var client = new ReleaseClient(new StaticReleaseHandler(payload, hash));
+        var bundle = client.DownloadVerifiedBundleAsync(
+                layout,
+                progress: null,
+                CancellationToken.None)
+            .GetAwaiter()
+            .GetResult();
+
+        Assert(File.ReadAllBytes(bundle).SequenceEqual(payload));
+        using var exclusiveHandle = new FileStream(
+            bundle,
+            FileMode.Open,
+            FileAccess.ReadWrite,
+            FileShare.None);
+        Assert(exclusiveHandle.Length == payload.Length);
+    }
+    finally
+    {
+        if (Directory.Exists(temporary))
+            Directory.Delete(temporary, recursive: true);
+    }
 }
 
 static void TestSafeDeleteGuard()
@@ -141,4 +177,23 @@ static void AssertThrows<TException>(Action action)
     }
 
     throw new InvalidOperationException($"Expected {typeof(TException).Name}.");
+}
+
+sealed class StaticReleaseHandler(byte[] payload, string hash) : HttpMessageHandler
+{
+    protected override Task<HttpResponseMessage> SendAsync(
+        HttpRequestMessage request,
+        CancellationToken cancellationToken)
+    {
+        HttpContent content = request.RequestUri?.AbsolutePath.EndsWith(
+            ".sha256",
+            StringComparison.OrdinalIgnoreCase) == true
+            ? new StringContent($"{hash}  RandomFavoritesBundle.zip\n")
+            : new ByteArrayContent(payload);
+
+        return Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.OK)
+        {
+            Content = content,
+        });
+    }
 }

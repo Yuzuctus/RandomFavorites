@@ -471,6 +471,7 @@ public sealed class InstallerService : IDisposable
             CreateNoWindow = true,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
+            RedirectStandardInput = true,
             WorkingDirectory = Path.GetDirectoryName(executable)!,
         };
         if (customDataDirectory is not null)
@@ -492,9 +493,25 @@ public sealed class InstallerService : IDisposable
         WriteLog($"VencordInstallerCli {operation} --branch {discord.CliBranch}");
         if (!process.Start())
             throw new InvalidOperationException("Impossible de démarrer l'installateur Vencord.");
+        await process.StandardInput.WriteLineAsync();
+        process.StandardInput.Close();
         process.BeginOutputReadLine();
         process.BeginErrorReadLine();
-        await process.WaitForExitAsync(cancellationToken);
+        try
+        {
+            await process.WaitForExitAsync(cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            if (!process.HasExited)
+            {
+                process.Kill(entireProcessTree: true);
+                await process.WaitForExitAsync(CancellationToken.None);
+            }
+
+            throw;
+        }
+
         if (process.ExitCode != 0)
             throw new InvalidOperationException(
                 $"L'installateur Vencord s'est arrêté avec le code {process.ExitCode}.");
