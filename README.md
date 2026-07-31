@@ -9,7 +9,7 @@ Un plugin Vencord qui envoie un **GIF**, une **emote** ou un **sticker** aléato
 3. Clique sur **Installer**.
 4. Dans Discord, va dans `Paramètres > Vencord > Plugins` et active **RandomFavorites**.
 
-Git, Node.js et pnpm ne sont pas nécessaires. L'installateur prépare les fichiers pendant que Discord reste ouvert, ferme Discord seulement au moment de l'installation, puis le redémarre.
+Git, Node.js et pnpm ne sont pas nécessaires. L'installateur prépare les fichiers pendant que Discord reste ouvert, puis le ferme seulement au moment de l'installation. **Discord n'est jamais relancé automatiquement** : tu le rouvres toi-même quand l'opération est terminée.
 
 > L'application n'est pas encore signée. Si Windows SmartScreen apparaît, vérifie que le fichier vient bien de la page [Releases officielle](https://github.com/Yuzuctus/RandomFavorites/releases), puis choisis **Informations complémentaires > Exécuter quand même**.
 

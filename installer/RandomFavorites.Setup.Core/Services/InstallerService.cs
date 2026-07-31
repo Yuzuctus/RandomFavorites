@@ -104,7 +104,6 @@ public sealed class InstallerService : IDisposable
     {
         var previousState = ReadState();
         string? stagedDirectory = null;
-        var restartDiscord = false;
 
         try
         {
@@ -130,9 +129,9 @@ public sealed class InstallerService : IDisposable
             progress?.Report(new InstallerProgress(
                 0.68,
                 "Installation dans Discord",
-                "Discord va se fermer pendant quelques secondes…"));
+                "Discord va être fermé et restera fermé après l'installation."));
             await StopDiscordAsync(discord, cancellationToken);
-            restartDiscord = true;
+            WriteLog("Discord fermé. Aucun redémarrage automatique ne sera effectué.");
 
             try
             {
@@ -190,17 +189,15 @@ public sealed class InstallerService : IDisposable
             };
             WriteState(state);
             PruneInactiveVersions(finalDirectory);
-            StartDiscord(discord);
-            restartDiscord = false;
             progress?.Report(new InstallerProgress(
                 1,
                 "Installation terminée",
-                $"RandomFavorites {manifest.Version} est prêt."));
+                $"RandomFavorites {manifest.Version} est prêt. Relance Discord quand tu le souhaites."));
             WriteLog($"RandomFavorites {manifest.Version} installé avec succès.");
             return new InstallResult(
                 true,
                 "RandomFavorites est installé",
-                "Discord a été redémarré. Active le plugin dans Paramètres > Vencord > Plugins si nécessaire.",
+                "Discord est resté fermé. Relance-le manuellement, puis active le plugin dans Paramètres > Vencord > Plugins si nécessaire.",
                 manifest.Version);
         }
         catch (OperationCanceledException)
@@ -215,12 +212,6 @@ public sealed class InstallerService : IDisposable
         }
         finally
         {
-            if (restartDiscord)
-            {
-                WriteLog("Redémarrage de Discord après l'interruption de l'opération.");
-                StartDiscord(discord);
-            }
-
             if (stagedDirectory is not null && Directory.Exists(stagedDirectory))
                 SafeDeleteDirectory(stagedDirectory, _layout.Versions);
         }
@@ -242,8 +233,6 @@ public sealed class InstallerService : IDisposable
         IProgress<InstallerProgress>? progress,
         CancellationToken cancellationToken)
     {
-        var restartDiscord = false;
-
         try
         {
             WriteLog($"Désinstallation demandée : {mode}.");
@@ -255,9 +244,9 @@ public sealed class InstallerService : IDisposable
             progress?.Report(new InstallerProgress(
                 0.5,
                 "Préparation de la désinstallation",
-                "Discord va se fermer pendant quelques secondes…"));
+                "Discord va être fermé et restera fermé après la désinstallation."));
             await StopDiscordAsync(discord, cancellationToken);
-            restartDiscord = true;
+            WriteLog("Discord fermé. Aucun redémarrage automatique ne sera effectué.");
 
             if (mode == UninstallMode.RandomFavoritesOnly)
             {
@@ -282,16 +271,14 @@ public sealed class InstallerService : IDisposable
                 }
 
                 RemoveCustomPayload();
-                StartDiscord(discord);
-                restartDiscord = false;
                 progress?.Report(new InstallerProgress(
                     1,
                     "RandomFavorites est désinstallé",
-                    "Vencord officiel et ses autres réglages sont conservés."));
+                    "Vencord officiel est conservé. Relance Discord quand tu le souhaites."));
                 return new InstallResult(
                     true,
                     "RandomFavorites est désinstallé",
-                    "Vencord officiel et tous les autres plugins/réglages sont conservés.");
+                    "Vencord officiel et tous les autres plugins/réglages sont conservés. Discord n'a pas été relancé.");
             }
 
             progress?.Report(new InstallerProgress(
@@ -314,20 +301,18 @@ public sealed class InstallerService : IDisposable
                 WriteLog($"Données Vencord supprimées : {_layout.VencordData}");
             }
 
-            StartDiscord(discord);
-            restartDiscord = false;
             progress?.Report(new InstallerProgress(
                 1,
                 "Vencord est désinstallé",
                 mode == UninstallMode.VencordKeepData
-                    ? "Les réglages locaux ont été conservés."
-                    : "Les réglages et thèmes locaux ont été supprimés."));
+                    ? "Les réglages locaux ont été conservés. Discord reste fermé."
+                    : "Les réglages et thèmes locaux ont été supprimés. Discord reste fermé."));
             return new InstallResult(
                 true,
                 "Vencord est désinstallé",
                 mode == UninstallMode.VencordKeepData
-                    ? "Discord est revenu à sa version d'origine. Tes réglages Vencord restent disponibles pour une future réinstallation."
-                    : "Discord est revenu à sa version d'origine et les données locales Vencord ont été supprimées.");
+                    ? "Discord est revenu à sa version d'origine et n'a pas été relancé. Tes réglages Vencord restent disponibles pour une future réinstallation."
+                    : "Discord est revenu à sa version d'origine, n'a pas été relancé et les données locales Vencord ont été supprimées.");
         }
         catch (OperationCanceledException)
         {
@@ -338,14 +323,6 @@ public sealed class InstallerService : IDisposable
         {
             WriteLog($"Échec de la désinstallation : {error}");
             return new InstallResult(false, "La désinstallation a échoué", error.Message);
-        }
-        finally
-        {
-            if (restartDiscord)
-            {
-                WriteLog("Redémarrage de Discord après l'interruption de la désinstallation.");
-                StartDiscord(discord);
-            }
         }
     }
 
@@ -553,20 +530,6 @@ public sealed class InstallerService : IDisposable
                 }
             }
         }
-    }
-
-    private static void StartDiscord(DiscordInstallation discord)
-    {
-        var updateExecutable = Path.Combine(discord.RootPath, "Update.exe");
-        if (!File.Exists(updateExecutable)) return;
-
-        Process.Start(new ProcessStartInfo
-        {
-            FileName = updateExecutable,
-            Arguments = $"--processStart {discord.ExecutableName}",
-            UseShellExecute = true,
-            WindowStyle = ProcessWindowStyle.Hidden,
-        });
     }
 
     private static void ValidateDiscordPatch(

@@ -3,10 +3,10 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="RandomFavorites"
         Icon="Assets/RandomFavorites.ico"
-        Width="920"
-        Height="650"
-        MinWidth="840"
-        MinHeight="600"
+        Width="860"
+        Height="560"
+        MinWidth="760"
+        MinHeight="520"
         WindowStartupLocation="CenterScreen"
         WindowStyle="None"
         ResizeMode="CanResize"
@@ -14,49 +14,61 @@
         SnapsToDevicePixels="True"
         Background="{StaticResource WindowBackground}">
     <WindowChrome.WindowChrome>
-        <WindowChrome CaptionHeight="42" ResizeBorderThickness="6" CornerRadius="10" GlassFrameThickness="0" />
+        <WindowChrome CaptionHeight="40" ResizeBorderThickness="6" CornerRadius="9" GlassFrameThickness="0" />
     </WindowChrome.WindowChrome>
 
     <Grid>
         <Grid.RowDefinitions>
-            <RowDefinition Height="42" />
+            <RowDefinition Height="40" />
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
-        <Border Grid.Row="0" Background="#162725" MouseLeftButtonDown="TitleBar_OnMouseLeftButtonDown">
-            <Grid Margin="14,0,6,0">
+        <Border Grid.Row="0" Background="#162725">
+            <Grid Margin="13,0,4,0">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="42" />
-                    <ColumnDefinition Width="42" />
+                    <ColumnDefinition Width="40" />
+                    <ColumnDefinition Width="40" />
+                    <ColumnDefinition Width="40" />
                 </Grid.ColumnDefinitions>
+
                 <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                    <Image Source="Assets/RandomFavorites.ico" Width="20" Height="20" Margin="0,0,9,0" />
-                    <TextBlock Text="RandomFavorites" FontFamily="Bahnschrift, Segoe UI" FontWeight="SemiBold"
-                               FontSize="13" VerticalAlignment="Center" />
+                    <Image Source="Assets/RandomFavorites.ico" Width="18" Height="18" Margin="0,0,8,0" />
+                    <TextBlock Text="RandomFavorites" FontFamily="Bahnschrift, Segoe UI"
+                               FontWeight="SemiBold" FontSize="12" VerticalAlignment="Center" />
                     <TextBlock Text="  /  Yuzuctus" Foreground="{StaticResource TextMuted}"
-                               FontSize="11" VerticalAlignment="Center" />
-                    <Border Background="#29433E" CornerRadius="8" Padding="7,2" Margin="10,0,0,0">
+                               FontSize="10" VerticalAlignment="Center" />
+                    <Border Background="#29433E" CornerRadius="8" Padding="7,2" Margin="9,0,0,0">
                         <TextBlock x:Name="VersionText" Text="Setup" Foreground="{StaticResource Accent}" FontSize="9" />
                     </Border>
                 </StackPanel>
-                <Button Grid.Column="1" Content="−" Style="{StaticResource TitleBarButton}"
-                        FontSize="16" AutomationProperties.Name="Réduire"
+
+                <Button x:Name="MinimizeButton" Grid.Column="1" Content="&#x2014;"
+                        Style="{StaticResource TitleBarButton}" FontSize="13"
+                        WindowChrome.IsHitTestVisibleInChrome="True"
+                        AutomationProperties.Name="Réduire" ToolTip="Réduire"
                         Click="MinimizeButton_OnClick" />
-                <Button Grid.Column="2" Content="×" Style="{StaticResource TitleBarButton}"
-                        FontSize="20" AutomationProperties.Name="Fermer"
+                <Button x:Name="MaximizeButton" Grid.Column="2" Content="&#x25A1;"
+                        Style="{StaticResource TitleBarButton}" FontSize="15"
+                        WindowChrome.IsHitTestVisibleInChrome="True"
+                        AutomationProperties.Name="Agrandir" ToolTip="Agrandir"
+                        Click="MaximizeButton_OnClick" />
+                <Button x:Name="CloseButton" Grid.Column="3" Content="&#x00D7;"
+                        Style="{StaticResource TitleBarButton}" FontSize="18"
+                        WindowChrome.IsHitTestVisibleInChrome="True"
+                        AutomationProperties.Name="Fermer" ToolTip="Fermer"
                         Click="CloseButton_OnClick" />
             </Grid>
         </Border>
 
         <Grid Grid.Row="1">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="255" />
+                <ColumnDefinition Width="220" />
                 <ColumnDefinition Width="*" />
             </Grid.ColumnDefinitions>
 
-            <Border Grid.Column="0" Background="{StaticResource PanelBackground}" BorderBrush="#29413E"
-                    BorderThickness="0,0,1,0" Padding="25,27,25,22" ClipToBounds="True">
+            <Border Grid.Column="0" Background="{StaticResource PanelBackground}"
+                    BorderBrush="#29413E" BorderThickness="0,0,1,0" Padding="22,24,22,20">
                 <Grid>
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />
@@ -66,18 +78,18 @@
                     </Grid.RowDefinitions>
 
                     <StackPanel>
-                        <TextBlock Text="R A N D O M F A V O R I T E S" Foreground="{StaticResource Accent}" FontSize="9"
-                                   FontWeight="Bold" />
-                        <TextBlock Text="Le hasard,&#x0a;sans surprise." FontFamily="Bahnschrift, Segoe UI"
-                                   FontSize="28" FontWeight="SemiBold" LineHeight="31" Margin="0,11,0,10" />
-                        <TextBlock Text="Vencord et ton plugin installés proprement, sans Git ni Node.js."
-                                   Foreground="{StaticResource TextSecondary}" FontSize="12"
-                                   TextWrapping="Wrap" LineHeight="18" />
+                        <TextBlock Text="RANDOMFAVORITES" Foreground="{StaticResource Accent}"
+                                   FontSize="9" FontWeight="Bold" />
+                        <TextBlock Text="Simple et local." FontFamily="Bahnschrift, Segoe UI"
+                                   FontSize="21" FontWeight="SemiBold" Margin="0,8,0,7" />
+                        <TextBlock Text="Installe et maintient ton plugin Vencord sans outils de développement."
+                                   Foreground="{StaticResource TextSecondary}" FontSize="11"
+                                   TextWrapping="Wrap" LineHeight="17" />
                     </StackPanel>
 
-                    <StackPanel Grid.Row="1" Margin="0,28,0,0">
-                        <TextBlock Text="VERSION DE DISCORD" Foreground="{StaticResource TextMuted}" FontSize="9"
-                                   FontWeight="Bold" Margin="0,0,0,8" />
+                    <StackPanel Grid.Row="1" Margin="0,26,0,0">
+                        <TextBlock Text="VERSION DE DISCORD" Foreground="{StaticResource TextMuted}"
+                                   FontSize="9" FontWeight="Bold" Margin="0,0,0,7" />
                         <ComboBox x:Name="DiscordBranchCombo"
                                   AutomationProperties.Name="Version de Discord"
                                   DisplayMemberPath="DisplayName"
@@ -86,26 +98,38 @@
                                    Foreground="{StaticResource TextSecondary}" FontSize="10" Margin="2,7,0,0" />
                     </StackPanel>
 
-                    <Grid Grid.Row="2" Margin="0,14,-12,-18" IsHitTestVisible="False">
-                        <Ellipse Width="174" Height="174" Fill="#29423E" Opacity="0.7"
-                                 HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,8" />
-                        <Image Source="Assets/Yuzuctus.png" Height="208" Stretch="Uniform"
-                               Opacity="0.82" HorizontalAlignment="Center" VerticalAlignment="Bottom" />
+                    <Grid Grid.Row="2" VerticalAlignment="Bottom" Margin="0,16,0,17"
+                          IsHitTestVisible="False">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="58" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <Border Width="52" Height="52" CornerRadius="26" Background="#29423E"
+                                BorderBrush="#3B5B55" BorderThickness="1" ClipToBounds="True"
+                                HorizontalAlignment="Left">
+                            <Image Source="Assets/Yuzuctus.png" Width="70" Height="70"
+                                   Stretch="UniformToFill" Opacity="0.9" />
+                        </Border>
+                        <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="9,0,0,0">
+                            <TextBlock Text="Yuzuctus" FontWeight="SemiBold" FontSize="11" />
+                            <TextBlock Text="Édition Windows" Foreground="{StaticResource TextMuted}" FontSize="9" Margin="0,2,0,0" />
+                        </StackPanel>
                     </Grid>
 
                     <StackPanel Grid.Row="3">
-                        <Border Height="1" Background="#31504B" Margin="0,0,0,12" />
-                        <TextBlock Text="LOCAL  ·  SANS TÉLÉMÉTRIE" Foreground="{StaticResource TextMuted}"
-                                   FontSize="9" FontWeight="Bold" />
+                        <Border Height="1" Background="#31504B" Margin="0,0,0,11" />
+                        <TextBlock Text="LOCAL · SANS TÉLÉMÉTRIE" Foreground="{StaticResource TextMuted}"
+                                   FontSize="8" FontWeight="Bold" />
                         <TextBlock Text="Aucun token Discord n'est lu ou stocké."
-                                   Foreground="{StaticResource TextSecondary}" FontSize="10"
-                                   TextWrapping="Wrap" Margin="0,5,0,0" />
+                                   Foreground="{StaticResource TextSecondary}" FontSize="9"
+                                   TextWrapping="Wrap" Margin="0,4,0,0" />
                     </StackPanel>
                 </Grid>
             </Border>
 
-            <Grid Grid.Column="1" Margin="34,27,34,23">
+            <Grid Grid.Column="1" MaxWidth="700" Margin="28,22,28,20" HorizontalAlignment="Stretch">
                 <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="*" />
@@ -114,13 +138,14 @@
 
                 <StackPanel>
                     <TextBlock Text="Installation" FontFamily="Bahnschrift, Segoe UI"
-                               FontSize="24" FontWeight="SemiBold" />
+                               FontSize="22" FontWeight="SemiBold" />
                     <TextBlock x:Name="InstalledStatusText" Text="Vérification de l'installation actuelle…"
-                               Foreground="{StaticResource TextSecondary}" FontSize="12" Margin="0,5,0,0" />
+                               Foreground="{StaticResource TextSecondary}" FontSize="11" Margin="0,4,0,0" />
                 </StackPanel>
 
-                <Border Grid.Row="1" Background="{StaticResource CardBackground}" BorderBrush="{StaticResource Border}"
-                        BorderThickness="1" CornerRadius="12" Margin="0,22,0,0">
+                <Border Grid.Row="1" Background="{StaticResource CardBackground}"
+                        BorderBrush="{StaticResource Border}" BorderThickness="1"
+                        CornerRadius="10" Margin="0,17,0,0">
                     <Grid>
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto" />
@@ -130,74 +155,89 @@
                             <RowDefinition Height="Auto" />
                         </Grid.RowDefinitions>
 
-                        <Grid Margin="20,15">
+                        <Grid Margin="18,12">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
-                            <StackPanel VerticalAlignment="Center" Margin="0,0,20,0">
-                                <TextBlock Text="Installer ou mettre à jour" FontSize="14" FontWeight="SemiBold" />
-                                <TextBlock Text="Télécharge la version compilée et l'active dans Discord."
-                                           Foreground="{StaticResource TextSecondary}" FontSize="11" Margin="0,4,0,0" />
+                            <StackPanel VerticalAlignment="Center" Margin="0,0,16,0">
+                                <TextBlock Text="Installer ou mettre à jour" FontSize="13" FontWeight="SemiBold" />
+                                <TextBlock Text="Récupère la dernière version stable."
+                                           Foreground="{StaticResource TextSecondary}" FontSize="10" Margin="0,3,0,0" />
                             </StackPanel>
                             <Button x:Name="InstallButton" Grid.Column="1" Content="Installer"
-                                    Style="{StaticResource ActionButton}" Click="InstallButton_OnClick" />
+                                    Style="{StaticResource ActionButton}" Padding="16,9"
+                                    Click="InstallButton_OnClick" />
                         </Grid>
 
-                        <Border Grid.Row="1" Background="#34504C" Margin="20,0" />
+                        <Border Grid.Row="1" Background="#34504C" Margin="18,0" />
 
-                        <Grid Grid.Row="2" Margin="20,15">
+                        <Grid Grid.Row="2" Margin="18,12">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
-                            <StackPanel VerticalAlignment="Center" Margin="0,0,20,0">
-                                <TextBlock Text="Réparer l'installation" FontSize="14" FontWeight="SemiBold" />
-                                <TextBlock Text="Réapplique les fichiers après une mise à jour ou un souci."
-                                           Foreground="{StaticResource TextSecondary}" FontSize="11" Margin="0,4,0,0" />
+                            <StackPanel VerticalAlignment="Center" Margin="0,0,16,0">
+                                <TextBlock Text="Réparer" FontSize="13" FontWeight="SemiBold" />
+                                <TextBlock Text="Réapplique les fichiers sans toucher aux réglages."
+                                           Foreground="{StaticResource TextSecondary}" FontSize="10" Margin="0,3,0,0" />
                             </StackPanel>
                             <Button x:Name="RepairButton" Grid.Column="1" Content="Réparer"
-                                    Style="{StaticResource SecondaryButton}" Click="RepairButton_OnClick" />
+                                    Style="{StaticResource SecondaryButton}" Padding="16,9"
+                                    Click="RepairButton_OnClick" />
                         </Grid>
 
-                        <Border Grid.Row="3" Background="#34504C" Margin="20,0" />
+                        <Border Grid.Row="3" Background="#34504C" Margin="18,0" />
 
-                        <Grid Grid.Row="4" Margin="20,15">
+                        <Grid Grid.Row="4" Margin="18,12">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
-                            <StackPanel VerticalAlignment="Center" Margin="0,0,20,0">
-                                <TextBlock Text="Désinstaller" FontSize="14" FontWeight="SemiBold" />
-                                <TextBlock Text="Retire le plugin seul ou restaure entièrement Discord."
-                                           Foreground="{StaticResource TextSecondary}" FontSize="11" Margin="0,4,0,0" />
+                            <StackPanel VerticalAlignment="Center" Margin="0,0,16,0">
+                                <TextBlock Text="Désinstaller" FontSize="13" FontWeight="SemiBold" />
+                                <TextBlock Text="Choisis précisément ce qui doit être retiré."
+                                           Foreground="{StaticResource TextSecondary}" FontSize="10" Margin="0,3,0,0" />
                             </StackPanel>
                             <Button x:Name="UninstallButton" Grid.Column="1" Content="Choisir…"
-                                    Style="{StaticResource SecondaryButton}" Click="UninstallButton_OnClick" />
+                                    Style="{StaticResource SecondaryButton}" Padding="16,9"
+                                    Click="UninstallButton_OnClick" />
                         </Grid>
                     </Grid>
                 </Border>
 
-                <Grid Grid.Row="2" Margin="0,15,0,0">
+                <Border Grid.Row="2" BorderBrush="#31504B" BorderThickness="0,0,0,1"
+                        Padding="2,10,2,10">
+                    <StackPanel Orientation="Horizontal">
+                        <Ellipse Width="6" Height="6" Fill="{StaticResource Accent}"
+                                 VerticalAlignment="Center" Margin="0,0,8,0" />
+                        <TextBlock Text="Discord sera fermé pendant l'opération et ne sera pas relancé automatiquement."
+                                   Foreground="{StaticResource TextSecondary}" FontSize="10"
+                                   TextWrapping="Wrap" VerticalAlignment="Center" />
+                    </StackPanel>
+                </Border>
+
+                <Grid Grid.Row="3" Margin="0,10,0,0">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="*" />
                     </Grid.RowDefinitions>
                     <Border x:Name="ResultPanel" Visibility="Collapsed" Background="#1C3932"
-                            BorderBrush="#3A6C60" BorderThickness="1" CornerRadius="9" Padding="12" Margin="0,0,0,10">
+                            BorderBrush="#3A6C60" BorderThickness="1" CornerRadius="8"
+                            Padding="11" Margin="0,0,0,8">
                         <StackPanel>
                             <TextBlock x:Name="ResultTitle" Text="Terminé" FontWeight="SemiBold"
-                                       Foreground="{StaticResource Success}" FontSize="12" />
+                                       Foreground="{StaticResource Success}" FontSize="11" />
                             <TextBlock x:Name="ResultMessage" Foreground="{StaticResource TextSecondary}"
-                                       TextWrapping="Wrap" Margin="0,3,0,0" FontSize="11" />
+                                       TextWrapping="Wrap" Margin="0,3,0,0" FontSize="10" />
                         </StackPanel>
                     </Border>
 
                     <Expander x:Name="LogExpander" Grid.Row="1" Header="Détails techniques"
-                              Foreground="{StaticResource TextSecondary}" IsExpanded="False" FontSize="11">
+                              Foreground="{StaticResource TextSecondary}" IsExpanded="False" FontSize="10">
                         <Border Background="#101D1B" BorderBrush="#29443F" BorderThickness="1"
-                                CornerRadius="8" Margin="0,7,0,0" Padding="10" MaxHeight="120">
+                                CornerRadius="7" Margin="0,6,0,0" Padding="9" MaxHeight="92">
                             <ScrollViewer x:Name="LogScrollViewer" VerticalScrollBarVisibility="Auto">
                                 <TextBlock x:Name="LogText" FontFamily="Cascadia Mono, Consolas" FontSize="9"
                                            Foreground="#86A09B" TextWrapping="Wrap" />
@@ -206,20 +246,20 @@
                     </Expander>
                 </Grid>
 
-                <StackPanel Grid.Row="3">
-                    <Grid Margin="0,0,0,8">
+                <StackPanel Grid.Row="4">
+                    <Grid Margin="0,0,0,7">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*" />
                             <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
                         <StackPanel>
-                            <TextBlock x:Name="ProgressStageText" Text="Prêt" FontWeight="SemiBold" FontSize="11" />
+                            <TextBlock x:Name="ProgressStageText" Text="Prêt" FontWeight="SemiBold" FontSize="10" />
                             <TextBlock x:Name="ProgressDetailText" Text="Choisis une action pour commencer."
-                                       Foreground="{StaticResource TextSecondary}" FontSize="10" Margin="0,2,0,0" />
+                                       Foreground="{StaticResource TextSecondary}" FontSize="9" Margin="0,2,0,0" />
                         </StackPanel>
                         <Button x:Name="CancelOperationButton" Grid.Column="1" Content="Annuler"
-                                Visibility="Collapsed" Style="{StaticResource SecondaryButton}" Padding="13,7"
-                                MinWidth="0" Click="CancelOperationButton_OnClick" />
+                                Visibility="Collapsed" Style="{StaticResource SecondaryButton}"
+                                Padding="12,6" MinWidth="0" Click="CancelOperationButton_OnClick" />
                     </Grid>
                     <ProgressBar x:Name="OperationProgress" Minimum="0" Maximum="100" Value="0" />
                 </StackPanel>
@@ -227,59 +267,60 @@
         </Grid>
 
         <Grid x:Name="UninstallOverlay" Grid.Row="1" Visibility="Collapsed" Background="#D9101C1A">
-            <Border Width="540" Background="#203532" CornerRadius="14" Padding="25"
+            <Border Width="500" Background="#203532" CornerRadius="12" Padding="22"
                     HorizontalAlignment="Center" VerticalAlignment="Center"
                     BorderBrush="{StaticResource Border}" BorderThickness="1">
                 <StackPanel>
                     <TextBlock Text="Désinstaller" FontFamily="Bahnschrift, Segoe UI"
-                               FontSize="21" FontWeight="SemiBold" />
-                    <TextBlock Text="Choisis précisément ce que tu veux conserver."
-                               Foreground="{StaticResource TextSecondary}" FontSize="11" Margin="0,5,0,14" />
+                               FontSize="19" FontWeight="SemiBold" />
+                    <TextBlock Text="Choisis ce qui doit être conservé."
+                               Foreground="{StaticResource TextSecondary}" FontSize="10" Margin="0,4,0,12" />
 
                     <RadioButton x:Name="RemovePluginOnlyRadio" IsChecked="True"
                                  Checked="UninstallChoice_OnChecked">
                         <StackPanel>
-                            <TextBlock Text="RandomFavorites seulement" FontWeight="SemiBold" FontSize="12" />
+                            <TextBlock Text="RandomFavorites seulement" FontWeight="SemiBold" FontSize="11" />
                             <TextBlock Text="Garde Vencord, les autres plugins, thèmes et réglages."
-                                       Foreground="{StaticResource TextSecondary}" FontSize="10" Margin="0,2,0,0" />
+                                       Foreground="{StaticResource TextSecondary}" FontSize="9" Margin="0,2,0,0" />
                         </StackPanel>
                     </RadioButton>
                     <CheckBox x:Name="RemovePluginSettingsCheck" Content="Supprimer aussi ses réglages"
-                              Margin="26,0,0,7" FontSize="10" />
+                              Margin="26,0,0,6" FontSize="9" />
 
                     <RadioButton x:Name="RemoveVencordKeepDataRadio" Checked="UninstallChoice_OnChecked">
                         <StackPanel>
-                            <TextBlock Text="Vencord complet, conserver les données" FontWeight="SemiBold" FontSize="12" />
+                            <TextBlock Text="Vencord complet, conserver les données" FontWeight="SemiBold" FontSize="11" />
                             <TextBlock Text="Restaure Discord mais garde les réglages et thèmes."
-                                       Foreground="{StaticResource TextSecondary}" FontSize="10" Margin="0,2,0,0" />
+                                       Foreground="{StaticResource TextSecondary}" FontSize="9" Margin="0,2,0,0" />
                         </StackPanel>
                     </RadioButton>
 
                     <RadioButton x:Name="RemoveEverythingRadio" Checked="UninstallChoice_OnChecked">
                         <StackPanel>
                             <TextBlock Text="Vencord complet et toutes ses données" FontWeight="SemiBold"
-                                       Foreground="{StaticResource Danger}" FontSize="12" />
+                                       Foreground="{StaticResource Danger}" FontSize="11" />
                             <TextBlock Text="Supprime aussi les thèmes, réglages et QuickCSS locaux."
-                                       Foreground="{StaticResource TextSecondary}" FontSize="10" Margin="0,2,0,0" />
+                                       Foreground="{StaticResource TextSecondary}" FontSize="9" Margin="0,2,0,0" />
                         </StackPanel>
                     </RadioButton>
                     <CheckBox x:Name="DeleteDataAcknowledge" Visibility="Collapsed"
                               Content="Je comprends que ces données locales seront supprimées"
-                              Margin="26,2,0,2" FontSize="10" Checked="DeleteDataAcknowledge_OnChanged"
+                              Margin="26,2,0,2" FontSize="9" Checked="DeleteDataAcknowledge_OnChanged"
                               Unchecked="DeleteDataAcknowledge_OnChanged" />
 
                     <Border Background="#3C2931" BorderBrush="#754153" BorderThickness="1"
-                            CornerRadius="8" Padding="11" Margin="0,12,0,16">
+                            CornerRadius="7" Padding="10" Margin="0,10,0,14">
                         <TextBlock x:Name="UninstallExplanationText"
                                    Text="RandomFavorites sera retiré et remplacé par Vencord officiel."
-                                   Foreground="#E6B8C9" FontSize="10" TextWrapping="Wrap" />
+                                   Foreground="#E6B8C9" FontSize="9" TextWrapping="Wrap" />
                     </Border>
 
                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-                        <Button Content="Retour" Style="{StaticResource SecondaryButton}" Margin="0,0,9,0"
-                                MinWidth="90" Click="CancelUninstallButton_OnClick" />
+                        <Button Content="Retour" Style="{StaticResource SecondaryButton}" Margin="0,0,8,0"
+                                MinWidth="86" Padding="15,8" Click="CancelUninstallButton_OnClick" />
                         <Button x:Name="ConfirmUninstallButton" Content="Désinstaller"
-                                Style="{StaticResource DangerButton}" Click="ConfirmUninstallButton_OnClick" />
+                                Style="{StaticResource DangerButton}" Padding="15,8"
+                                Click="ConfirmUninstallButton_OnClick" />
                     </StackPanel>
                 </StackPanel>
             </Border>
