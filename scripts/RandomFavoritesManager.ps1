@@ -11,6 +11,7 @@ param(
 
     [switch]$SkipInject,
 
+    # Conserved for compatibility with older shortcuts. Discord is never restarted automatically.
     [switch]$SkipRestart,
 
     [switch]$NonInteractive,
@@ -156,7 +157,7 @@ function New-TuiStages {
         [PSCustomObject]@{
             Number = 7
             Title = Get-UiText "Installing into Discord" "Installation dans Discord"
-            Explanation = Get-UiText "Discord closes only now, then restarts automatically." "Discord se ferme seulement maintenant, puis redemarre automatiquement."
+            Explanation = Get-UiText "Discord closes only now and stays closed." "Discord se ferme seulement maintenant et reste ferme."
             Weight = 10
             State = "Pending"
             StartedAt = $null
@@ -618,7 +619,7 @@ function Write-FinalSuccess {
     if ($script:TuiEnabled) {
         $script:TuiOutcome = "success"
         $script:TuiDetail = if ($InstalledToDiscord) {
-            Get-UiText "Installation completed. Discord has restarted." "Installation terminee. Discord a redemarre."
+            Get-UiText "Installation completed. Discord remains closed." "Installation terminee. Discord reste ferme."
         } else {
             Get-UiText "Build completed. Discord was not modified." "Compilation terminee. Discord n'a pas ete modifie."
         }
@@ -1424,30 +1425,6 @@ function Test-VencordPatch {
     }
 }
 
-function Start-Discord {
-    param([string]$DiscordBranch)
-
-    $discordRoot = Join-Path $env:LOCALAPPDATA (Get-DiscordRootName $DiscordBranch)
-    $updateExe = Join-Path $discordRoot "Update.exe"
-    $processName = Get-DiscordProcessName $DiscordBranch
-    $discordExe = "$processName.exe"
-
-    if (-not (Test-Path -LiteralPath $updateExe)) {
-        if ($script:TuiEnabled) {
-            Update-TuiActivity `
-                (Get-UiText "Discord could not be restarted automatically." "Discord n'a pas pu etre redemarre automatiquement.") `
-                -Force
-        } else {
-            Write-Host "  Discord restart skipped because '$updateExe' was not found." -ForegroundColor Yellow
-        }
-        return
-    }
-
-    Write-TechnicalLog "Restarting $processName."
-    Update-TuiActivity (Get-UiText "Restarting Discord..." "Redemarrage de Discord...") -Progress 0.88 -Force
-    Start-Process -FilePath $updateExe -ArgumentList "--processStart", $discordExe
-}
-
 function Write-UpdateLauncher {
     param(
         [string]$RootDirectory,
@@ -1577,7 +1554,7 @@ function Main {
 
     if (-not $NonInteractive) {
         Write-Host "  $(Get-UiText "Discord stays open while files are prepared." "Discord reste ouvert pendant la preparation des fichiers.")" -ForegroundColor White
-        Write-Host "  $(Get-UiText "It will close only during the final installation, then restart automatically." "Il se fermera seulement pendant l'installation finale, puis redemarrera automatiquement.")" -ForegroundColor White
+        Write-Host "  $(Get-UiText "It will close only during the final installation and stay closed." "Il se fermera seulement pendant l'installation finale et restera ferme.")" -ForegroundColor White
         Write-Host ""
         $answer = Read-Host "  $(Get-UiText "Continue? [Y/n]" "Continuer ? [O/n]")"
         if ($answer -and $answer -notmatch "^(y|yes|o|oui)$") {
@@ -1648,7 +1625,7 @@ function Main {
 
     $stageTimer = Write-Step 7 7 `
         (Get-UiText "Installing into Discord" "Installation dans Discord") `
-        (Get-UiText "Discord closes only now, then restarts automatically." "Discord se ferme seulement maintenant, puis redemarre automatiquement.")
+        (Get-UiText "Discord closes only now and stays closed." "Discord se ferme seulement maintenant et reste ferme.")
     if ($SkipInject) {
         if ($script:TuiEnabled) {
             Update-TuiActivity `
@@ -1671,9 +1648,11 @@ function Main {
         ) $vencordDirectory
         Test-VencordPatch $Branch $vencordDirectory
 
-        if (-not $SkipRestart) {
-            Start-Discord $Branch
-        }
+        Write-TechnicalLog "Discord remains closed after installation by design."
+        Update-TuiActivity `
+            (Get-UiText "Installation complete. Restart Discord yourself when ready." "Installation terminee. Relance Discord toi-meme quand tu es pret.") `
+            -Progress 0.88 `
+            -Force
     }
 
     $updateLauncher = Join-Path $resolvedRoot "Update RandomFavorites.cmd"

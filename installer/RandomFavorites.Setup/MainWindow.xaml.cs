@@ -1,8 +1,7 @@
-using System.Diagnostics;
 using System.Reflection;
 using System.Windows;
+using System.Windows.Automation;
 using System.Windows.Controls;
-using System.Windows.Input;
 using System.Windows.Media;
 using RandomFavorites.Setup.Core.Models;
 using RandomFavorites.Setup.Core.Services;
@@ -14,6 +13,7 @@ public partial class MainWindow : Window
     private readonly InstallerService _installerService = new();
     private CancellationTokenSource? _operationCancellation;
     private bool _isBusy;
+    private bool _closeWhenIdle;
 
     public MainWindow()
     {
@@ -22,12 +22,15 @@ public partial class MainWindow : Window
         _installerService.LogLine += AppendLog;
         LoadDiscordInstallations();
         RefreshInstalledState();
+        UpdateMaximizeButton();
 
+        StateChanged += (_, _) => UpdateMaximizeButton();
         Closing += (_, eventArgs) =>
         {
             if (!_isBusy) return;
+
             eventArgs.Cancel = true;
-            ProgressDetailText.Text = "Annule d'abord l'opération en cours pour fermer l'installateur.";
+            RequestCloseAfterCancellation();
         };
     }
 
@@ -95,6 +98,7 @@ public partial class MainWindow : Window
         _isBusy = true;
         _operationCancellation = new CancellationTokenSource();
         SetActionButtonsEnabled(false);
+        CancelOperationButton.IsEnabled = true;
         CancelOperationButton.Visibility = Visibility.Visible;
         ResultPanel.Visibility = Visibility.Collapsed;
         OperationProgress.Value = 0;
@@ -114,7 +118,7 @@ public partial class MainWindow : Window
             ShowResult(new InstallResult(
                 false,
                 "Opération annulée",
-                "L'installateur a nettoyé ses fichiers temporaires."));
+                "L'installateur a arrêté l'opération. Discord n'est pas relancé automatiquement."));
         }
         finally
         {
@@ -123,6 +127,12 @@ public partial class MainWindow : Window
             _isBusy = false;
             CancelOperationButton.Visibility = Visibility.Collapsed;
             SetActionButtonsEnabled(true);
+
+            if (_closeWhenIdle)
+            {
+                _closeWhenIdle = false;
+                _ = Dispatcher.BeginInvoke(Close);
+            }
         }
     }
 
@@ -233,22 +243,46 @@ public partial class MainWindow : Window
         DiscordDetectionText.Foreground = (Brush)FindResource("Success");
     }
 
-    private void TitleBar_OnMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
-    {
-        if (e.ClickCount == 2)
-            WindowState = WindowState == WindowState.Maximized
-                ? WindowState.Normal
-                : WindowState.Maximized;
-        else
-            DragMove();
-    }
-
     private void MinimizeButton_OnClick(object sender, RoutedEventArgs e) =>
         WindowState = WindowState.Minimized;
 
+    private void MaximizeButton_OnClick(object sender, RoutedEventArgs e) =>
+        WindowState = WindowState == WindowState.Maximized
+            ? WindowState.Normal
+            : WindowState.Maximized;
+
     private void CloseButton_OnClick(object sender, RoutedEventArgs e)
     {
-        if (!_isBusy) Close();
+        if (_isBusy)
+        {
+            RequestCloseAfterCancellation();
+            return;
+        }
+
+        Close();
+    }
+
+    private void RequestCloseAfterCancellation()
+    {
+        if (_closeWhenIdle) return;
+
+        _closeWhenIdle = true;
+        CancelOperationButton.IsEnabled = false;
+        ProgressStageText.Text = "Fermeture en cours";
+        ProgressDetailText.Text = "L'opération est annulée proprement. Discord ne sera pas relancé.";
+        _operationCancellation?.Cancel();
+    }
+
+    private void UpdateMaximizeButton()
+    {
+        if (MaximizeButton is null) return;
+
+        var isMaximized = WindowState == WindowState.Maximized;
+        MaximizeButton.Content = isMaximized ? "❐" : "□";
+        MaximizeButton.ToolTip = isMaximized ? "Restaurer" : "Agrandir";
+        AutomationProperties.SetName(
+            MaximizeButton,
+            isMaximized ? "Restaurer" : "Agrandir");
     }
 
     protected override void OnClosed(EventArgs e)
