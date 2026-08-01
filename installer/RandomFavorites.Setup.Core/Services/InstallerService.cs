@@ -72,6 +72,20 @@ public sealed class InstallerService : IDisposable
         return candidates.Where(candidate => Directory.Exists(candidate.RootPath)).ToArray();
     }
 
+    public static string GetVersionDirectoryName(BundleManifest manifest)
+    {
+        var safeVersion = string.Concat(
+            manifest.Version.Select(character =>
+                Path.GetInvalidFileNameChars().Contains(character) ? '-' : character));
+        var pluginSuffix = manifest.PluginCommit[..Math.Min(8, manifest.PluginCommit.Length)];
+        var vencordSuffix = manifest.VencordCommit[..Math.Min(8, manifest.VencordCommit.Length)];
+
+        return string.Join(
+            "-",
+            new[] { safeVersion, pluginSuffix, vencordSuffix }
+                .Where(part => !string.IsNullOrWhiteSpace(part)));
+    }
+
     public InstallState? ReadState()
     {
         if (!File.Exists(_layout.StateFile)) return null;
@@ -402,15 +416,7 @@ public sealed class InstallerService : IDisposable
         BundleManifest manifest,
         InstallState? currentState)
     {
-        var safeVersion = string.Concat(
-            manifest.Version.Select(character =>
-                Path.GetInvalidFileNameChars().Contains(character) ? '-' : character));
-        var commitSuffix = manifest.PluginCommit.Length >= 8
-            ? manifest.PluginCommit[..8]
-            : manifest.PluginCommit;
-        var directoryName = string.IsNullOrWhiteSpace(commitSuffix)
-            ? safeVersion
-            : $"{safeVersion}-{commitSuffix}";
+        var directoryName = GetVersionDirectoryName(manifest);
         var finalDirectory = Path.Combine(_layout.Versions, directoryName);
 
         if (Directory.Exists(finalDirectory))

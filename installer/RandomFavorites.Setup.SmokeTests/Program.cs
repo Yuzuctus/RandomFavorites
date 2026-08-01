@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using RandomFavorites.Setup.Core;
+using RandomFavorites.Setup.Core.Models;
 using RandomFavorites.Setup.Core.Services;
 
 var tests = new (string Name, Action Run)[]
@@ -11,6 +12,7 @@ var tests = new (string Name, Action Run)[]
     ("downloaded bundle is moved only after its stream is released", TestDownloadReleasesFile),
     ("safe deletion guard rejects broad and sibling paths", TestSafeDeleteGuard),
     ("installer state rejects payload paths outside its version directory", TestStatePathGuard),
+    ("payload identity changes when the Vencord build changes", TestPayloadIdentity),
     ("settings cleanup removes only RandomFavorites and creates a backup", TestSettingsCleanup),
 };
 
@@ -125,6 +127,26 @@ static void TestStatePathGuard()
     {
         Directory.Delete(temporary, recursive: true);
     }
+}
+
+static void TestPayloadIdentity()
+{
+    var first = new BundleManifest
+    {
+        Version = "v1.2.3",
+        PluginCommit = new string('a', 40),
+        VencordCommit = new string('b', 40),
+    };
+    var refreshed = new BundleManifest
+    {
+        Version = first.Version,
+        PluginCommit = first.PluginCommit,
+        VencordCommit = new string('c', 40),
+    };
+
+    Assert(InstallerService.GetVersionDirectoryName(first) == "v1.2.3-aaaaaaaa-bbbbbbbb");
+    Assert(InstallerService.GetVersionDirectoryName(first)
+        != InstallerService.GetVersionDirectoryName(refreshed));
 }
 
 static void TestSettingsCleanup()
