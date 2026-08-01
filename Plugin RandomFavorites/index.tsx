@@ -42,6 +42,12 @@ import {
 } from "@webpack/common";
 
 import { formatGifContent } from "./messageFormatting";
+import {
+    buildGifPreviewSources,
+    type FavoriteGifMedia,
+    type PreviewSource,
+    resolveGifContentUrl,
+} from "./previewMedia";
 import { buildSelectionPlan } from "./selectionPlan";
 import { ShuffleBag } from "./shuffleBag";
 import { pickUniform } from "./uniformRandom";
@@ -51,9 +57,8 @@ type ConcreteFavoriteKind = Exclude<FavoriteKind, "all">;
 type MixMode = "balanced" | "uniform";
 type PoolScope = "favorites" | "all";
 
-interface FavoriteGif {
+interface FavoriteGif extends FavoriteGifMedia {
     format?: number;
-    src?: string;
     width?: number;
     height?: number;
     order?: number;
@@ -82,6 +87,7 @@ interface FavoriteCandidate {
     content?: string;
     previewType?: "image" | "lottie";
     previewUrl?: string;
+    previewSources?: PreviewSource[];
     stickerId?: string;
 }
 
@@ -444,22 +450,6 @@ function canSendMessages(channel: Channel) {
     return PermissionStore.can(permission, channel);
 }
 
-function normalizeWebUrl(...values: Array<string | undefined>) {
-    for (const value of values) {
-        if (!value) continue;
-
-        try {
-            const url = new URL(value);
-            if (url.protocol === "https:" || url.protocol === "http:")
-                return url.toString();
-        } catch {
-            // Try the next representation. Old Discord GIF entries can have a stale key.
-        }
-    }
-
-    return undefined;
-}
-
 function collectGifs(frecency: FrecencySettings): {
     candidates: FavoriteCandidate[];
     rawCount: number;
@@ -468,16 +458,16 @@ function collectGifs(frecency: FrecencySettings): {
     const uniqueCandidates = new Map<string, FavoriteCandidate>();
 
     for (const [favoriteUrl, gif] of entries) {
-        const url = normalizeWebUrl(favoriteUrl, gif?.src);
-        if (!url) continue;
+        const contentUrl = resolveGifContentUrl(favoriteUrl, gif ?? {});
+        if (!contentUrl) continue;
 
-        const key = `gif:${url}`;
+        const key = `gif:${contentUrl}`;
         uniqueCandidates.set(key, {
             kind: "gif",
             key,
-            label: url,
-            content: url,
-            previewUrl: url,
+            label: contentUrl,
+            content: contentUrl,
+            previewSources: buildGifPreviewSources(favoriteUrl, gif ?? {}),
         });
     }
 
@@ -964,27 +954,66 @@ function LottieStickerPreview({ label, url }: { label: string; url: string; }) {
     );
 }
 
+function FavoriteMediaPreview({ candidate }: { candidate: FavoriteCandidate; }) {
+    const fallbackSource = candidate.previewUrl
+        ? [{ type: candidate.previewType ?? "image", url: candidate.previewUrl } as const]
+        : [];
+    const sources = candidate.previewSources ?? fallbackSource;
+    const [sourceIndex, setSourceIndex] = useState(0);
+    const source = sources[sourceIndex];
+
+    useEffect(() => setSourceIndex(0), [candidate.key]);
+
+    if (source?.type === "lottie")
+        return <LottieStickerPreview label={candidate.label} url={source.url} />;
+
+    if (source?.type === "video") {
+        return (
+            <video
+                src={source.url}
+                aria-label={candidate.label}
+                className="vc-rf-preview-image"
+                autoPlay
+                loop
+                muted
+                playsInline
+                onError={() => setSourceIndex(index => index + 1)}
+            />
+        );
+    }
+
+    if (source) {
+        return (
+            <img
+                src={source.url}
+                alt={candidate.label}
+                className="vc-rf-preview-image"
+                onError={() => setSourceIndex(index => index + 1)}
+            />
+        );
+    }
+
+    if (candidate.kind === "emoji" && candidate.content) {
+        return (
+            <div className="vc-rf-preview-emoji">
+                {Parser.parse(candidate.content)}
+            </div>
+        );
+    }
+
+    return (
+        <div className="vc-rf-preview-fallback">
+            <RandomFavoritesIcon height={44} width={44} />
+            <span>{localize("Preview unavailable", "Aperçu indisponible")}</span>
+        </div>
+    );
+}
+
 function FavoritePreviewCard({ candidate }: { candidate: FavoriteCandidate; }) {
     return (
         <article className="vc-rf-preview-card">
             <div className="vc-rf-preview-media">
-                {candidate.previewUrl && candidate.previewType === "lottie" ? (
-                    <LottieStickerPreview label={candidate.label} url={candidate.previewUrl} />
-                ) : candidate.previewUrl ? (
-                    <img
-                        src={candidate.previewUrl}
-                        alt={candidate.label}
-                        className="vc-rf-preview-image"
-                    />
-                ) : candidate.kind === "emoji" && candidate.content ? (
-                    <div className="vc-rf-preview-emoji">
-                        {Parser.parse(candidate.content)}
-                    </div>
-                ) : (
-                    <div className="vc-rf-preview-fallback">
-                        <RandomFavoritesIcon height={64} width={64} />
-                    </div>
-                )}
+                <FavoriteMediaPreview candidate={candidate} />
             </div>
             <div className="vc-rf-preview-meta">
                 <strong>{previewKindLabel(candidate.kind)}</strong>

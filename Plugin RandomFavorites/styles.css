@@ -61,6 +61,13 @@
     line-height: 1;
 }
 
+.vc-rf-preview-fallback {
+    flex-direction: column;
+    gap: 10px;
+    color: var(--text-muted);
+    font-size: 12px;
+}
+
 .vc-rf-preview-emoji img {
     width: 96px;
     height: 96px;

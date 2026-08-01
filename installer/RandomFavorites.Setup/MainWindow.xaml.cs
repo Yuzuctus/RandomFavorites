@@ -60,7 +60,8 @@ public partial class MainWindow : Window
 
         if (installations.Count == 0)
         {
-            DiscordDetectionText.Text = "Aucune installation Discord Desktop détectée.";
+            DiscordDetectionText.Text = "Discord introuvable";
+            DiscordDetectionText.Visibility = Visibility.Visible;
             DiscordDetectionText.Foreground = (Brush)FindResource("Danger");
             SetActionButtonsEnabled(false);
         }
@@ -71,13 +72,12 @@ public partial class MainWindow : Window
         var state = _installerService.ReadState();
         if (state is null)
         {
-            InstalledStatusText.Text = "RandomFavorites n'est pas encore géré par ce nouvel installateur.";
+            InstalledStatusText.Text = "Non installé";
             InstallButton.Content = "Installer";
             return;
         }
 
-        InstalledStatusText.Text =
-            $"RandomFavorites {state.Version} · {state.Branch} · installé {state.InstalledAtUtc.ToLocalTime():dd/MM/yyyy à HH:mm}";
+        InstalledStatusText.Text = $"{state.Version} installé";
         InstallButton.Content = "Mettre à jour";
     }
 
@@ -113,12 +113,12 @@ public partial class MainWindow : Window
         catch (OperationCanceledException)
         {
             ProgressStageText.Text = "Opération annulée";
-            ProgressDetailText.Text = "Aucun autre changement ne sera effectué.";
+            ProgressDetailText.Text = "Aucun autre changement.";
             OperationProgress.IsIndeterminate = false;
             ShowResult(new InstallResult(
                 false,
                 "Opération annulée",
-                "L'installateur a arrêté l'opération. Discord n'est pas relancé automatiquement."));
+                "Discord reste fermé s'il avait déjà été arrêté."));
         }
         finally
         {
@@ -223,10 +223,10 @@ public partial class MainWindow : Window
             || DeleteDataAcknowledge.IsChecked == true;
 
         UninstallExplanationText.Text = removeEverything
-            ? "Attention : Discord sera restauré, puis le dossier de données Vencord sera supprimé avec les thèmes, QuickCSS et réglages locaux."
+            ? "Supprime Vencord, les thèmes et les réglages locaux."
             : RemoveVencordKeepDataRadio.IsChecked == true
-                ? "Discord sera restauré sans Vencord. Les données locales resteront intactes pour une future réinstallation."
-                : "RandomFavorites sera retiré et remplacé par Vencord officiel. Les autres plugins et réglages resteront disponibles.";
+                ? "Retire Vencord. Les données locales sont conservées."
+                : "Retire RandomFavorites. Vencord est conservé.";
     }
 
     private void CancelOperationButton_OnClick(object sender, RoutedEventArgs e)
@@ -239,8 +239,7 @@ public partial class MainWindow : Window
     private void DiscordBranchCombo_OnSelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         if (SelectedDiscord is not { } discord) return;
-        DiscordDetectionText.Text = $"✓ {discord.DisplayName} détecté";
-        DiscordDetectionText.Foreground = (Brush)FindResource("Success");
+        DiscordDetectionText.Visibility = Visibility.Collapsed;
     }
 
     private void MinimizeButton_OnClick(object sender, RoutedEventArgs e) =>
