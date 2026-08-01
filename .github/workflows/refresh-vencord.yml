@@ -1,0 +1,158 @@
+name: Refresh current Vencord bundle
+
+on:
+  schedule:
+    - cron: "17 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: randomfavorites-release-assets
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    name: Rebuild only when official Vencord changed
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - name: Check out release automation
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          path: automation
+
+      - name: Compare the published bundle with official Vencord
+        id: current
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = gh release view --repo $env:GITHUB_REPOSITORY --json tagName --jq .tagName
+          if ($LASTEXITCODE -ne 0 -or $tag -notmatch '^v[0-9]+\.[0-9]+\.[0-9]+$') {
+            throw "No stable RandomFavorites release was found."
+          }
+
+          $pluginCommit = (git -C automation rev-list -n 1 $tag).Trim()
+          if ($LASTEXITCODE -ne 0 -or $pluginCommit -notmatch '^[0-9a-f]{40}$') {
+            throw "Could not resolve the commit for $tag."
+          }
+
+          $vencordCommit = gh api repos/Vendicated/Vencord/commits/main --jq .sha
+          if ($LASTEXITCODE -ne 0 -or $vencordCommit -notmatch '^[0-9a-f]{40}$') {
+            throw "Could not resolve the current official Vencord commit."
+          }
+
+          New-Item -ItemType Directory -Force -Path current-manifest | Out-Null
+          gh release download $tag `
+            --repo $env:GITHUB_REPOSITORY `
+            --pattern RandomFavoritesBundle.manifest.json `
+            --dir current-manifest `
+            --clobber 2>$null
+
+          $needsRefresh = $true
+          $manifestPath = "current-manifest/RandomFavoritesBundle.manifest.json"
+          if ($LASTEXITCODE -eq 0 -and (Test-Path -LiteralPath $manifestPath)) {
+            try {
+              $manifest = Get-Content -Raw -LiteralPath $manifestPath | ConvertFrom-Json
+              $needsRefresh = $manifest.pluginCommit -ne $pluginCommit `
+                -or $manifest.vencordCommit -ne $vencordCommit
+            } catch {
+              Write-Warning "The published manifest is invalid and will be rebuilt."
+            }
+          }
+
+          "tag=$tag" >> $env:GITHUB_OUTPUT
+          "plugin_commit=$pluginCommit" >> $env:GITHUB_OUTPUT
+          "vencord_commit=$vencordCommit" >> $env:GITHUB_OUTPUT
+          "needs_refresh=$($needsRefresh.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
+
+          if ($needsRefresh) {
+            "Official Vencord changed; rebuilding the current RandomFavorites release." >> $env:GITHUB_STEP_SUMMARY
+          } else {
+            "The published bundle already contains the current official Vencord commit." >> $env:GITHUB_STEP_SUMMARY
+          }
+
+      - name: Check out the latest RandomFavorites release
+        if: steps.current.outputs.needs_refresh == 'true'
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ steps.current.outputs.tag }}
+          path: random-favorites
+
+      - name: Check out the exact current Vencord commit
+        if: steps.current.outputs.needs_refresh == 'true'
+        uses: actions/checkout@v5
+        with:
+          repository: Vendicated/Vencord
+          ref: ${{ steps.current.outputs.vencord_commit }}
+          path: vencord
+
+      - name: Set up Node.js
+        if: steps.current.outputs.needs_refresh == 'true'
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+
+      - name: Enable Vencord's pinned pnpm
+        if: steps.current.outputs.needs_refresh == 'true'
+        working-directory: vencord
+        shell: pwsh
+        run: |
+          corepack enable
+          corepack install
+
+      - name: Add the released RandomFavorites plugin
+        if: steps.current.outputs.needs_refresh == 'true'
+        shell: pwsh
+        run: |
+          $destination = "vencord/src/userplugins/randomFavorites"
+          New-Item -ItemType Directory -Force -Path $destination | Out-Null
+          Copy-Item -LiteralPath random-favorites/index.tsx -Destination $destination
+          Copy-Item -LiteralPath "random-favorites/Plugin RandomFavorites" -Destination $destination -Recurse
+
+      - name: Install exact Vencord dependencies
+        if: steps.current.outputs.needs_refresh == 'true'
+        working-directory: vencord
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify compatibility with current Vencord
+        if: steps.current.outputs.needs_refresh == 'true'
+        working-directory: vencord
+        shell: pwsh
+        run: |
+          pnpm exec tsx --test "src/userplugins/randomFavorites/**/*.test.ts"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          pnpm eslint src/userplugins/randomFavorites
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          pnpm testTsc
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          pnpm build
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Build the refreshed verified bundle
+        if: steps.current.outputs.needs_refresh == 'true'
+        shell: pwsh
+        run: |
+          & automation/scripts/Build-ReleaseBundle.ps1 `
+            -RandomFavoritesDirectory random-favorites `
+            -VencordDirectory vencord `
+            -OutputDirectory release-assets `
+            -Version "${{ steps.current.outputs.tag }}"
+
+      - name: Replace only the current bundle assets
+        if: steps.current.outputs.needs_refresh == 'true'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "${{ steps.current.outputs.tag }}" `
+            release-assets/RandomFavoritesBundle.zip `
+            release-assets/RandomFavoritesBundle.zip.sha256 `
+            release-assets/RandomFavoritesBundle.manifest.json `
+            --repo $env:GITHUB_REPOSITORY `
+            --clobber
+
+          "Bundle refreshed with Vencord commit `${{ steps.current.outputs.vencord_commit }}`." >> $env:GITHUB_STEP_SUMMARY

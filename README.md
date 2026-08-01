@@ -35,6 +35,8 @@ Rouvre le même EXE :
 - **Réparer** réapplique les fichiers après une mise à jour de Discord ;
 - **Désinstaller** peut retirer seulement RandomFavorites, Vencord en conservant ses données, ou tout supprimer.
 
+Le bundle de la dernière release est automatiquement recompilé lorsque le Vencord officiel change. L'EXE récupère donc le **dernier build Vencord vérifié compatible avec RandomFavorites**, même si le numéro de version du plugin n'a pas changé. Si une mise à jour Vencord casse la compilation, GitHub conserve le dernier bundle fonctionnel au lieu de distribuer une installation cassée.
+
 Les réglages non concernés sont conservés. Une sauvegarde est créée avant de retirer les réglages RandomFavorites.
 
 ## Sécurité

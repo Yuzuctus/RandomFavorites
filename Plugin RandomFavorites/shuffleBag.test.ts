@@ -77,6 +77,57 @@ describe("ShuffleBag", () => {
         deepStrictEqual(new Set([firstChanged, secondChanged]), new Set(["c", "d"]));
     });
 
+    it("remembers consumed items across temporary pool changes", () => {
+        const originalRandom = Math.random;
+        Math.random = () => 0;
+
+        try {
+            const bag = makeBag();
+            const items = [
+                { id: "a", value: 1 },
+                { id: "b", value: 2 },
+                { id: "c", value: 3 },
+            ];
+            const first = bag.take(items)?.id;
+
+            bag.take([{ id: "elsewhere", value: 4 }]);
+
+            const resumedCycle = [
+                bag.take(items)?.id,
+                bag.take(items)?.id,
+            ];
+
+            deepStrictEqual(
+                new Set(resumedCycle),
+                new Set(items.map(item => item.id).filter(id => id !== first)),
+            );
+        } finally {
+            Math.random = originalRandom;
+        }
+    });
+
+    it("shares history when a later draw uses a wider pool", () => {
+        const originalRandom = Math.random;
+        Math.random = () => 0;
+
+        try {
+            const bag = makeBag();
+            const first = bag.take([
+                { id: "a", value: 1 },
+                { id: "b", value: 2 },
+            ]);
+            const next = bag.take([
+                { id: "a", value: 1 },
+                { id: "b", value: 2 },
+                { id: "c", value: 3 },
+            ]);
+
+            notEqual(next?.id, first?.id);
+        } finally {
+            Math.random = originalRandom;
+        }
+    });
+
     it("does not repeat at the boundary between two multi-item cycles", () => {
         const bag = makeBag();
         const items = [

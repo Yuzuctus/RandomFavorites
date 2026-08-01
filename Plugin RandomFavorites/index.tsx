@@ -122,12 +122,8 @@ const LottiePlayer = findByPropsLazy("loadAnimation") as {
 const activeChannels = new Set<string>();
 const concreteKinds: ConcreteFavoriteKind[] = ["gif", "emoji", "sticker"];
 
-const candidateBags: Record<ConcreteFavoriteKind, ShuffleBag<FavoriteCandidate>> = {
-    gif: new ShuffleBag(candidate => candidate.key),
-    emoji: new ShuffleBag(candidate => candidate.key),
-    sticker: new ShuffleBag(candidate => candidate.key),
-};
-const allCandidatesBag = new ShuffleBag<FavoriteCandidate>(candidate => candidate.key);
+const candidateBag = new ShuffleBag<FavoriteCandidate>(candidate => candidate.key);
+const kindBag = new ShuffleBag<ConcreteFavoriteKind>(kind => kind);
 
 const settings = definePluginSettings({
     showChatBarButton: {
@@ -346,8 +342,8 @@ const settings = definePluginSettings({
         },
         get description() {
             return localize(
-                "Use every available item once in a shuffled order before repeating it.",
-                "Utilise chaque élément disponible une fois dans un ordre mélangé avant de le répéter.",
+                "Cycle through available items and mixed categories before repeating whenever an alternative exists.",
+                "Fait le tour des éléments disponibles et des types en mode mixte avant de répéter lorsqu'une alternative existe.",
             );
         },
         default: true,
@@ -661,7 +657,7 @@ function collectFavoritePools(kind: FavoriteKind, channel: Channel): FavoritePoo
 function pickFromKind(kind: ConcreteFavoriteKind, pools: FavoritePools) {
     const candidates = pools.candidates[kind];
     return settings.store.avoidRepeats
-        ? candidateBags[kind].take(candidates)
+        ? candidateBag.take(candidates)
         : pickUniform(candidates);
 }
 
@@ -675,7 +671,9 @@ function pickCandidateFromKinds(
     if (availableKinds.length === 0) return undefined;
 
     if (settings.store.mixMode === "balanced") {
-        const selectedKind = pickUniform(availableKinds);
+        const selectedKind = settings.store.avoidRepeats
+            ? kindBag.take(availableKinds)
+            : pickUniform(availableKinds);
 
         return selectedKind ? pickFromKind(selectedKind, pools) : undefined;
     }
@@ -685,7 +683,7 @@ function pickCandidateFromKinds(
     );
 
     return settings.store.avoidRepeats
-        ? allCandidatesBag.take(allCandidates)
+        ? candidateBag.take(allCandidates)
         : pickUniform(allCandidates);
 }
 
@@ -1475,7 +1473,7 @@ export default definePlugin({
 
     stop() {
         activeChannels.clear();
-        allCandidatesBag.clear();
-        concreteKinds.forEach(kind => candidateBags[kind].clear());
+        candidateBag.clear();
+        kindBag.clear();
     },
 });

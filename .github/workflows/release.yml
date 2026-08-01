@@ -8,6 +8,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: randomfavorites-release-assets
+  cancel-in-progress: false
+
 jobs:
   release:
     name: Build and publish ${{ github.ref_name }}
@@ -72,67 +76,11 @@ jobs:
       - name: Build verified release bundle
         shell: pwsh
         run: |
-          $releaseRoot = Join-Path $PWD "release-assets"
-          $bundleRoot = Join-Path $releaseRoot "bundle"
-          $distRoot = Join-Path $bundleRoot "dist"
-          $toolsRoot = Join-Path $bundleRoot "tools"
-          $licensesRoot = Join-Path $bundleRoot "licenses"
-          New-Item -ItemType Directory -Force -Path $distRoot, $toolsRoot, $licensesRoot | Out-Null
-
-          Get-ChildItem -LiteralPath vencord/dist -File |
-            Where-Object { $_.Name -match '^(package\.json|patcher\.|preload\.|renderer\.)' } |
-            Copy-Item -Destination $distRoot -Force
-
-          Invoke-WebRequest `
-            -Uri "https://github.com/Vencord/Installer/releases/latest/download/VencordInstallerCli.exe" `
-            -OutFile (Join-Path $toolsRoot "VencordInstallerCli.exe") `
-            -UseBasicParsing
-          Invoke-WebRequest `
-            -Uri "https://github.com/Vencord/Installer/releases/latest/download/checksums.sha256" `
-            -OutFile (Join-Path $toolsRoot "checksums.sha256") `
-            -UseBasicParsing
-          $checksumLine = Get-Content -LiteralPath (Join-Path $toolsRoot "checksums.sha256") |
-            Where-Object { $_ -match '\sVencordInstallerCli\.exe$' } |
-            Select-Object -First 1
-          if (-not $checksumLine) { throw "VencordInstallerCli.exe is missing from the official checksum file." }
-          $expectedInstallerHash = ($checksumLine -split '\s+')[0]
-          $actualInstallerHash = (Get-FileHash `
-            -LiteralPath (Join-Path $toolsRoot "VencordInstallerCli.exe") `
-            -Algorithm SHA256).Hash
-          if ($actualInstallerHash -ne $expectedInstallerHash) {
-            throw "The official Vencord installer checksum does not match."
-          }
-          Remove-Item -LiteralPath (Join-Path $toolsRoot "checksums.sha256")
-          Invoke-WebRequest `
-            -Uri "https://raw.githubusercontent.com/Vencord/Installer/main/LICENSE" `
-            -OutFile (Join-Path $licensesRoot "Vencord-Installer-LICENSE") `
-            -UseBasicParsing
-
-          Copy-Item -LiteralPath vencord/LICENSE -Destination (Join-Path $licensesRoot "Vencord-LICENSE")
-          Copy-Item -LiteralPath random-favorites/LICENSE -Destination (Join-Path $licensesRoot "RandomFavorites-LICENSE")
-          Copy-Item -LiteralPath random-favorites/installer/THIRD_PARTY_NOTICES.md -Destination $bundleRoot
-
-          $manifest = [ordered]@{
-            version = $env:GITHUB_REF_NAME
-            vencordCommit = (git -C vencord rev-parse HEAD).Trim()
-            pluginCommit = (git -C random-favorites rev-parse HEAD).Trim()
-            builtAtUtc = [DateTimeOffset]::UtcNow.ToString("o")
-            requiredFiles = @(
-              "dist/patcher.js",
-              "dist/preload.js",
-              "dist/renderer.js",
-              "dist/renderer.css",
-              "tools/VencordInstallerCli.exe"
-            )
-          }
-          $manifest | ConvertTo-Json -Depth 4 |
-            Set-Content -LiteralPath (Join-Path $bundleRoot "manifest.json") -Encoding utf8
-
-          $bundlePath = Join-Path $releaseRoot "RandomFavoritesBundle.zip"
-          Compress-Archive -Path (Join-Path $bundleRoot "*") -DestinationPath $bundlePath -CompressionLevel Optimal
-          $hash = (Get-FileHash -LiteralPath $bundlePath -Algorithm SHA256).Hash.ToLowerInvariant()
-          "$hash  RandomFavoritesBundle.zip" |
-            Set-Content -LiteralPath "$bundlePath.sha256" -Encoding ascii -NoNewline
+          & random-favorites/scripts/Build-ReleaseBundle.ps1 `
+            -RandomFavoritesDirectory random-favorites `
+            -VencordDirectory vencord `
+            -OutputDirectory release-assets `
+            -Version $env:GITHUB_REF_NAME
 
       - name: Build self-contained installer
         shell: pwsh
@@ -166,6 +114,7 @@ jobs:
             release-assets/RandomFavoritesSetup.exe.sha256 `
             release-assets/RandomFavoritesBundle.zip `
             release-assets/RandomFavoritesBundle.zip.sha256 `
+            release-assets/RandomFavoritesBundle.manifest.json `
             --repo $env:GITHUB_REPOSITORY `
             --title "RandomFavorites $env:GITHUB_REF_NAME" `
             --generate-notes `
