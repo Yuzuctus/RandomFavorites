@@ -32,6 +32,29 @@ describe("GIF preview media", () => {
         ]);
     });
 
+    it("uses Discord's video format for extensionless Tenor media URLs", () => {
+        assert.deepEqual(buildGifPreviewSources("https://tenor.com/view/cat-gif-123", {
+            format: 2,
+            src: "https://media.tenor.co/videos/10b5a62192508ab85ec795ce4124f12a/mp4",
+        }), [
+            {
+                type: "video",
+                url: "https://media.tenor.co/videos/10b5a62192508ab85ec795ce4124f12a/mp4",
+            },
+        ]);
+    });
+
+    it("recognizes legacy Tenor video paths when the format field is missing", () => {
+        assert.deepEqual(buildGifPreviewSources("https://tenor.com/view/cat-gif-123", {
+            src: "https://media.tenor.co/videos/legacy-hash/webm?width=320",
+        }), [
+            {
+                type: "video",
+                url: "https://media.tenor.co/videos/legacy-hash/webm?width=320",
+            },
+        ]);
+    });
+
     it("uses a direct favorite media URL as the final preview fallback", () => {
         assert.deepEqual(buildGifPreviewSources("https://cdn.example.com/reaction.gif", {}), [
             { type: "image", url: "https://cdn.example.com/reaction.gif" },

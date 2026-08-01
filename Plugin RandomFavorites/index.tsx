@@ -58,7 +58,6 @@ type MixMode = "balanced" | "uniform";
 type PoolScope = "favorites" | "all";
 
 interface FavoriteGif extends FavoriteGifMedia {
-    format?: number;
     width?: number;
     height?: number;
     order?: number;
