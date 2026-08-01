@@ -5,6 +5,7 @@
  */
 
 export interface FavoriteGifMedia {
+    format?: number;
     gif_src?: string;
     preview?: string;
     src?: string;
@@ -35,7 +36,13 @@ function normalizeWebUrl(value: string | undefined) {
 
 function inferMediaType(url: string): PreviewSource["type"] {
     const { pathname } = new URL(url);
-    return directVideoExtensions.test(pathname) ? "video" : "image";
+    const finalSegment = pathname.split("/").pop()?.toLowerCase();
+
+    return directVideoExtensions.test(pathname)
+        || pathname.toLowerCase().includes("/videos/")
+        || /^(?:m4v|mov|mp4|webm)$/.test(finalSegment ?? "")
+        ? "video"
+        : "image";
 }
 
 function isDirectMediaUrl(url: string) {
@@ -69,7 +76,11 @@ export function buildGifPreviewSources(
 
     add(gif.gif_src, "image");
     add(gif.preview);
-    add(gif.src);
+    add(gif.src, gif.format === 2
+        ? "video"
+        : gif.format === 1
+            ? "image"
+            : undefined);
     add(gif.url, undefined, true);
     add(favoriteUrl, undefined, true);
 
