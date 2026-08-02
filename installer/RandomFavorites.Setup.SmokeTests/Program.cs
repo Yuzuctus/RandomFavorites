@@ -14,6 +14,11 @@ var tests = new (string Name, Action Run)[]
     ("installer state rejects payload paths outside its version directory", TestStatePathGuard),
     ("payload identity changes when the Vencord build changes", TestPayloadIdentity),
     ("settings cleanup removes only RandomFavorites and creates a backup", TestSettingsCleanup),
+    ("OpenAsar download is accepted only after SHA-256 verification", TestOpenAsarDownload),
+    ("OpenAsar download is deleted when SHA-256 verification fails", TestOpenAsarDigestMismatch),
+    ("OpenAsar install and uninstall restore the original Discord asar", TestOpenAsarInstallAndRestore),
+    ("OpenAsar preserves Vencord's outer patch", TestOpenAsarPreservesVencordPatch),
+    ("OpenAsar refuses to overwrite an existing backup", TestOpenAsarBackupCollision),
 };
 
 var failures = 0;
@@ -181,6 +186,154 @@ static void TestSettingsCleanup()
     }
 }
 
+static void TestOpenAsarDownload()
+{
+    var temporary = Path.Combine(Path.GetTempPath(), $"randomfavorites-openasar-download-{Guid.NewGuid():N}");
+    var layout = new InstallerLayout(
+        Path.Combine(temporary, "local"),
+        Path.Combine(temporary, "roaming"));
+    var payload = "OpenAsar verified payload"u8.ToArray();
+
+    try
+    {
+        using var client = new ReleaseClient(new OpenAsarReleaseHandler(payload));
+        var downloaded = client.DownloadVerifiedOpenAsarAsync(
+                layout,
+                progress: null,
+                CancellationToken.None)
+            .GetAwaiter()
+            .GetResult();
+
+        Assert(File.ReadAllBytes(downloaded).SequenceEqual(payload));
+    }
+    finally
+    {
+        if (Directory.Exists(temporary))
+            Directory.Delete(temporary, recursive: true);
+    }
+}
+
+static void TestOpenAsarDigestMismatch()
+{
+    var temporary = Path.Combine(Path.GetTempPath(), $"randomfavorites-openasar-invalid-{Guid.NewGuid():N}");
+    var layout = new InstallerLayout(
+        Path.Combine(temporary, "local"),
+        Path.Combine(temporary, "roaming"));
+
+    try
+    {
+        using var client = new ReleaseClient(new OpenAsarReleaseHandler(
+            "untrusted payload"u8.ToArray(),
+            corruptDigest: true));
+        AssertThrows<InvalidDataException>(() => client.DownloadVerifiedOpenAsarAsync(
+                layout,
+                progress: null,
+                CancellationToken.None)
+            .GetAwaiter()
+            .GetResult());
+        Assert(!File.Exists(Path.Combine(layout.Downloads, "OpenAsar.app.asar")));
+    }
+    finally
+    {
+        if (Directory.Exists(temporary))
+            Directory.Delete(temporary, recursive: true);
+    }
+}
+
+static void TestOpenAsarInstallAndRestore()
+{
+    var temporary = CreateDiscordFixture(withVencordPatch: false);
+    var discord = CreateDiscordInstallation(temporary);
+    var resources = GetFixtureResources(temporary);
+    var openAsar = Path.Combine(temporary, "verified-openasar.asar");
+    File.WriteAllText(openAsar, "OpenAsar replacement");
+
+    try
+    {
+        OpenAsarManager.Install(discord, openAsar);
+        Assert(OpenAsarManager.IsInstalled(discord));
+        Assert(File.ReadAllText(Path.Combine(resources, "app.asar")) == "OpenAsar replacement");
+        Assert(File.ReadAllText(Path.Combine(resources, "app.asar.backup")) == "Discord original");
+
+        OpenAsarManager.Uninstall(discord);
+        Assert(!OpenAsarManager.IsInstalled(discord));
+        Assert(File.ReadAllText(Path.Combine(resources, "app.asar")) == "Discord original");
+        Assert(!File.Exists(Path.Combine(resources, "app.asar.backup")));
+    }
+    finally
+    {
+        Directory.Delete(temporary, recursive: true);
+    }
+}
+
+static void TestOpenAsarPreservesVencordPatch()
+{
+    var temporary = CreateDiscordFixture(withVencordPatch: true);
+    var discord = CreateDiscordInstallation(temporary);
+    var resources = GetFixtureResources(temporary);
+    var openAsar = Path.Combine(temporary, "verified-openasar.asar");
+    File.WriteAllText(openAsar, "OpenAsar replacement");
+
+    try
+    {
+        OpenAsarManager.Install(discord, openAsar);
+        Assert(File.ReadAllText(Path.Combine(resources, "app.asar")) == "Vencord patcher");
+        Assert(File.ReadAllText(Path.Combine(resources, "_app.asar")) == "OpenAsar replacement");
+
+        OpenAsarManager.Uninstall(discord);
+        Assert(File.ReadAllText(Path.Combine(resources, "app.asar")) == "Vencord patcher");
+        Assert(File.ReadAllText(Path.Combine(resources, "_app.asar")) == "Discord original");
+    }
+    finally
+    {
+        Directory.Delete(temporary, recursive: true);
+    }
+}
+
+static void TestOpenAsarBackupCollision()
+{
+    var temporary = CreateDiscordFixture(withVencordPatch: false);
+    var discord = CreateDiscordInstallation(temporary);
+    var resources = GetFixtureResources(temporary);
+    var openAsar = Path.Combine(temporary, "verified-openasar.asar");
+    File.WriteAllText(openAsar, "OpenAsar replacement");
+    File.WriteAllText(Path.Combine(resources, "app.asar.backup"), "user backup");
+
+    try
+    {
+        AssertThrows<InvalidOperationException>(() => OpenAsarManager.Install(discord, openAsar));
+        Assert(File.ReadAllText(Path.Combine(resources, "app.asar")) == "Discord original");
+        Assert(File.ReadAllText(Path.Combine(resources, "app.asar.backup")) == "user backup");
+    }
+    finally
+    {
+        Directory.Delete(temporary, recursive: true);
+    }
+}
+
+static string CreateDiscordFixture(bool withVencordPatch)
+{
+    var temporary = Path.Combine(Path.GetTempPath(), $"randomfavorites-openasar-{Guid.NewGuid():N}");
+    var resources = GetFixtureResources(temporary);
+    Directory.CreateDirectory(resources);
+    File.WriteAllText(Path.Combine(resources, "app.asar"), withVencordPatch
+        ? "Vencord patcher"
+        : "Discord original");
+    if (withVencordPatch)
+        File.WriteAllText(Path.Combine(resources, "_app.asar"), "Discord original");
+    return temporary;
+}
+
+static string GetFixtureResources(string root) =>
+    Path.Combine(root, "app-1.0.0", "resources");
+
+static DiscordInstallation CreateDiscordInstallation(string root) => new(
+    DiscordBranch.Stable,
+    "Discord Stable",
+    root,
+    "Discord",
+    "Discord.exe");
+
 static void Assert(bool condition)
 {
     if (!condition) throw new InvalidOperationException("Assertion failed.");
@@ -211,6 +364,39 @@ sealed class StaticReleaseHandler(byte[] payload, string hash) : HttpMessageHand
             ".sha256",
             StringComparison.OrdinalIgnoreCase) == true
             ? new StringContent($"{hash}  RandomFavoritesBundle.zip\n")
+            : new ByteArrayContent(payload);
+
+        return Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.OK)
+        {
+            Content = content,
+        });
+    }
+}
+
+sealed class OpenAsarReleaseHandler(byte[] payload, bool corruptDigest = false) : HttpMessageHandler
+{
+    protected override Task<HttpResponseMessage> SendAsync(
+        HttpRequestMessage request,
+        CancellationToken cancellationToken)
+    {
+        var hash = corruptDigest
+            ? new string('0', 64)
+            : Convert.ToHexString(SHA256.HashData(payload)).ToLowerInvariant();
+        HttpContent content = request.RequestUri?.AbsolutePath.EndsWith(
+            "/releases/tags/nightly",
+            StringComparison.OrdinalIgnoreCase) == true
+            ? new StringContent($$"""
+                {
+                  "tag_name": "nightly",
+                  "assets": [
+                    {
+                      "name": "app.asar",
+                      "browser_download_url": "https://github.com/GooseMod/OpenAsar/releases/download/nightly/app.asar",
+                      "digest": "sha256:{{hash}}"
+                    }
+                  ]
+                }
+                """)
             : new ByteArrayContent(payload);
 
         return Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.OK)

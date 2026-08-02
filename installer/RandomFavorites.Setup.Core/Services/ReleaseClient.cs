@@ -1,6 +1,8 @@
 using System.Diagnostics;
 using System.Net.Http.Headers;
 using System.Security.Cryptography;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using RandomFavorites.Setup.Core.Models;
 
 namespace RandomFavorites.Setup.Core.Services;
@@ -15,6 +17,8 @@ public sealed class ReleaseClient : IDisposable
         "https://github.com/Vencord/Installer/releases/latest/download/VencordInstallerCli.exe";
     public const string OfficialInstallerChecksumUrl =
         "https://github.com/Vencord/Installer/releases/latest/download/checksums.sha256";
+    public const string OpenAsarReleaseApiUrl =
+        "https://api.github.com/repos/GooseMod/OpenAsar/releases/tags/nightly";
 
     private readonly HttpClient _httpClient;
 
@@ -94,6 +98,63 @@ public sealed class ReleaseClient : IDisposable
         return installerPath;
     }
 
+    public async Task<string> DownloadVerifiedOpenAsarAsync(
+        InstallerLayout layout,
+        IProgress<InstallerProgress>? progress,
+        CancellationToken cancellationToken)
+    {
+        layout.EnsureDirectories();
+        using var releaseResponse = await _httpClient.GetAsync(
+            OpenAsarReleaseApiUrl,
+            cancellationToken);
+        releaseResponse.EnsureSuccessStatusCode();
+        await using var releaseStream = await releaseResponse.Content.ReadAsStreamAsync(
+            cancellationToken);
+        var release = await JsonSerializer.DeserializeAsync<GitHubRelease>(
+            releaseStream,
+            cancellationToken: cancellationToken)
+            ?? throw new InvalidDataException("La release OpenAsar officielle est illisible.");
+        var asset = release.Assets?.FirstOrDefault(candidate =>
+            string.Equals(candidate.Name, "app.asar", StringComparison.OrdinalIgnoreCase))
+            ?? throw new InvalidDataException("La release OpenAsar ne contient pas app.asar.");
+        var expectedChecksum = ParseGitHubDigest(asset.Digest);
+        if (string.IsNullOrWhiteSpace(asset.DownloadUrl)
+            || !Uri.TryCreate(asset.DownloadUrl, UriKind.Absolute, out var downloadUri)
+            || !downloadUri.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase)
+            || !downloadUri.Host.Equals("github.com", StringComparison.OrdinalIgnoreCase)
+            || !downloadUri.AbsolutePath.StartsWith(
+                "/GooseMod/OpenAsar/releases/download/",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidDataException("L'adresse de téléchargement OpenAsar n'est pas officielle.");
+        }
+
+        var openAsarPath = Path.Combine(layout.Downloads, "OpenAsar.app.asar");
+        await DownloadFileWithRetriesAsync(
+            asset.DownloadUrl,
+            openAsarPath,
+            "Téléchargement d'OpenAsar",
+            progress,
+            cancellationToken,
+            startPercent: 0.5,
+            endPercent: 0.58);
+
+        progress?.Report(new InstallerProgress(
+            0.59,
+            "Vérification d'OpenAsar",
+            "Contrôle de l'intégrité SHA-256…",
+            true));
+        var actualChecksum = await ComputeSha256Async(openAsarPath, cancellationToken);
+        if (!actualChecksum.Equals(expectedChecksum, StringComparison.OrdinalIgnoreCase))
+        {
+            File.Delete(openAsarPath);
+            throw new InvalidDataException(
+                "OpenAsar ne correspond pas à l'empreinte SHA-256 publiée par GitHub.");
+        }
+
+        return openAsarPath;
+    }
+
     public static string ParseSha256(string checksumFile)
     {
         var candidate = checksumFile
@@ -125,26 +186,47 @@ public sealed class ReleaseClient : IDisposable
             $"Le fichier de contrôle ne contient pas d'empreinte pour {fileName}.");
     }
 
+    public static string ParseGitHubDigest(string? digest)
+    {
+        const string prefix = "sha256:";
+        if (digest is null || !digest.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidDataException("L'empreinte OpenAsar n'utilise pas SHA-256.");
+
+        var hash = digest[prefix.Length..];
+        if (hash.Length != 64 || hash.Any(character => !Uri.IsHexDigit(character)))
+            throw new InvalidDataException("L'empreinte SHA-256 OpenAsar est invalide.");
+        return hash.ToLowerInvariant();
+    }
+
     private async Task DownloadFileWithRetriesAsync(
         string url,
         string destination,
         string stage,
         IProgress<InstallerProgress>? progress,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        double startPercent = 0.08,
+        double endPercent = 0.44)
     {
         Exception? lastError = null;
         for (var attempt = 1; attempt <= 3; attempt++)
         {
             try
             {
-                await DownloadFileAsync(url, destination, stage, progress, cancellationToken);
+                await DownloadFileAsync(
+                    url,
+                    destination,
+                    stage,
+                    progress,
+                    cancellationToken,
+                    startPercent,
+                    endPercent);
                 return;
             }
             catch (Exception error) when (error is not OperationCanceledException && attempt < 3)
             {
                 lastError = error;
                 progress?.Report(new InstallerProgress(
-                    0.08,
+                    startPercent,
                     stage,
                     $"Nouvelle tentative {attempt + 1}/3 après une interruption…",
                     true));
@@ -160,7 +242,9 @@ public sealed class ReleaseClient : IDisposable
         string destination,
         string stage,
         IProgress<InstallerProgress>? progress,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        double startPercent,
+        double endPercent)
     {
         var partPath = destination + ".part";
         if (File.Exists(partPath)) File.Delete(partPath);
@@ -199,7 +283,7 @@ public sealed class ReleaseClient : IDisposable
                     ? $" / {totalBytes.Value / 1024d / 1024d:0.0} Mo"
                     : "";
                 progress?.Report(new InstallerProgress(
-                    0.08 + ratio * 0.36,
+                    startPercent + ratio * (endPercent - startPercent),
                     stage,
                     $"{megabytes:0.0}{totalLabel} · {speed:0.0} Mo/s",
                     totalBytes is null));
@@ -221,4 +305,22 @@ public sealed class ReleaseClient : IDisposable
     }
 
     public void Dispose() => _httpClient.Dispose();
+
+    private sealed class GitHubRelease
+    {
+        [JsonPropertyName("assets")]
+        public GitHubAsset[]? Assets { get; init; } = [];
+    }
+
+    private sealed class GitHubAsset
+    {
+        [JsonPropertyName("name")]
+        public string? Name { get; init; }
+
+        [JsonPropertyName("browser_download_url")]
+        public string? DownloadUrl { get; init; }
+
+        [JsonPropertyName("digest")]
+        public string? Digest { get; init; }
+    }
 }

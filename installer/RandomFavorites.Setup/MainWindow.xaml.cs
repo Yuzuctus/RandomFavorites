@@ -74,11 +74,31 @@ public partial class MainWindow : Window
         {
             InstalledStatusText.Text = "Non installé";
             InstallButton.Content = "Installer";
+            RefreshOpenAsarState();
             return;
         }
 
         InstalledStatusText.Text = $"{state.Version} installé";
         InstallButton.Content = "Mettre à jour";
+        RefreshOpenAsarState();
+    }
+
+    private void RefreshOpenAsarState()
+    {
+        if (SelectedDiscord is not { } discord)
+        {
+            InstallOpenAsarCheck.IsChecked = false;
+            InstallOpenAsarCheck.IsEnabled = false;
+            OpenAsarStatusText.Text = "Discord introuvable";
+            return;
+        }
+
+        var installed = _installerService.IsOpenAsarInstalled(discord);
+        InstallOpenAsarCheck.IsChecked = installed;
+        InstallOpenAsarCheck.IsEnabled = !_isBusy && !installed;
+        OpenAsarStatusText.Text = installed
+            ? "Installé"
+            : "Optionnel · démarrage plus rapide";
     }
 
     private void SetActionButtonsEnabled(bool enabled)
@@ -88,6 +108,10 @@ public partial class MainWindow : Window
         RepairButton.IsEnabled = enabled && hasDiscord;
         UninstallButton.IsEnabled = enabled && hasDiscord;
         DiscordBranchCombo.IsEnabled = enabled && hasDiscord;
+        InstallOpenAsarCheck.IsEnabled = enabled
+            && hasDiscord
+            && SelectedDiscord is { } discord
+            && !_installerService.IsOpenAsarInstalled(discord);
     }
 
     private async Task RunOperationAsync(
@@ -166,17 +190,37 @@ public partial class MainWindow : Window
         });
     }
 
-    private void InstallButton_OnClick(object sender, RoutedEventArgs e) =>
+    private void InstallButton_OnClick(object sender, RoutedEventArgs e)
+    {
+        var installOpenAsar = InstallOpenAsarCheck.IsChecked == true;
         _ = RunOperationAsync((discord, progress, token) =>
-            _installerService.InstallOrUpdateAsync(discord, progress, token));
+            _installerService.InstallOrUpdateAsync(
+                discord,
+                installOpenAsar,
+                progress,
+                token));
+    }
 
-    private void RepairButton_OnClick(object sender, RoutedEventArgs e) =>
+    private void RepairButton_OnClick(object sender, RoutedEventArgs e)
+    {
+        var installOpenAsar = InstallOpenAsarCheck.IsChecked == true;
         _ = RunOperationAsync((discord, progress, token) =>
-            _installerService.RepairAsync(discord, progress, token));
+            _installerService.RepairAsync(
+                discord,
+                installOpenAsar,
+                progress,
+                token));
+    }
 
     private void UninstallButton_OnClick(object sender, RoutedEventArgs e)
     {
         if (_isBusy) return;
+        var openAsarInstalled = SelectedDiscord is { } discord
+            && _installerService.IsOpenAsarInstalled(discord);
+        RemoveOpenAsarCheck.IsChecked = false;
+        RemoveOpenAsarCheck.Visibility = openAsarInstalled
+            ? Visibility.Visible
+            : Visibility.Collapsed;
         UninstallOverlay.Visibility = Visibility.Visible;
         UpdateUninstallChoice();
     }
@@ -193,6 +237,8 @@ public partial class MainWindow : Window
                 : UninstallMode.RandomFavoritesOnly;
         var removePluginSettings = RemovePluginOnlyRadio.IsChecked == true
             && RemovePluginSettingsCheck.IsChecked == true;
+        var removeOpenAsar = RemoveOpenAsarCheck.Visibility == Visibility.Visible
+            && RemoveOpenAsarCheck.IsChecked == true;
 
         UninstallOverlay.Visibility = Visibility.Collapsed;
         _ = RunOperationAsync((discord, progress, token) =>
@@ -200,6 +246,7 @@ public partial class MainWindow : Window
                 discord,
                 mode,
                 removePluginSettings,
+                removeOpenAsar,
                 progress,
                 token));
     }
@@ -208,6 +255,9 @@ public partial class MainWindow : Window
         UpdateUninstallChoice();
 
     private void DeleteDataAcknowledge_OnChanged(object sender, RoutedEventArgs e) =>
+        UpdateUninstallChoice();
+
+    private void RemoveOpenAsarCheck_OnChanged(object sender, RoutedEventArgs e) =>
         UpdateUninstallChoice();
 
     private void UpdateUninstallChoice()
@@ -222,11 +272,19 @@ public partial class MainWindow : Window
         ConfirmUninstallButton.IsEnabled = !removeEverything
             || DeleteDataAcknowledge.IsChecked == true;
 
-        UninstallExplanationText.Text = removeEverything
+        var explanation = removeEverything
             ? "Supprime Vencord, les thèmes et les réglages locaux."
             : RemoveVencordKeepDataRadio.IsChecked == true
                 ? "Retire Vencord. Les données locales sont conservées."
                 : "Retire RandomFavorites. Vencord est conservé.";
+        if (RemoveOpenAsarCheck.Visibility == Visibility.Visible)
+        {
+            explanation += RemoveOpenAsarCheck.IsChecked == true
+                ? " OpenAsar sera aussi retiré."
+                : " OpenAsar sera conservé.";
+        }
+
+        UninstallExplanationText.Text = explanation;
     }
 
     private void CancelOperationButton_OnClick(object sender, RoutedEventArgs e)
@@ -238,8 +296,9 @@ public partial class MainWindow : Window
 
     private void DiscordBranchCombo_OnSelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (SelectedDiscord is not { } discord) return;
+        if (SelectedDiscord is null) return;
         DiscordDetectionText.Visibility = Visibility.Collapsed;
+        RefreshOpenAsarState();
     }
 
     private void MinimizeButton_OnClick(object sender, RoutedEventArgs e) =>
