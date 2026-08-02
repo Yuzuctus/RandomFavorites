@@ -17,6 +17,7 @@ var tests = new (string Name, Action Run)[]
     ("OpenAsar download is accepted only after SHA-256 verification", TestOpenAsarDownload),
     ("OpenAsar download is deleted when SHA-256 verification fails", TestOpenAsarDigestMismatch),
     ("OpenAsar install and uninstall restore the original Discord asar", TestOpenAsarInstallAndRestore),
+    ("OpenAsar update preserves the original Discord backup", TestOpenAsarUpdate),
     ("OpenAsar preserves Vencord's outer patch", TestOpenAsarPreservesVencordPatch),
     ("OpenAsar refuses to overwrite an existing backup", TestOpenAsarBackupCollision),
 };
@@ -250,7 +251,7 @@ static void TestOpenAsarInstallAndRestore()
 
     try
     {
-        OpenAsarManager.Install(discord, openAsar);
+        Assert(OpenAsarManager.InstallOrUpdate(discord, openAsar) == OpenAsarChange.Installed);
         Assert(OpenAsarManager.IsInstalled(discord));
         Assert(File.ReadAllText(Path.Combine(resources, "app.asar")) == "OpenAsar replacement");
         Assert(File.ReadAllText(Path.Combine(resources, "app.asar.backup")) == "Discord original");
@@ -266,19 +267,52 @@ static void TestOpenAsarInstallAndRestore()
     }
 }
 
+static void TestOpenAsarUpdate()
+{
+    var temporary = CreateDiscordFixture(withVencordPatch: false);
+    var discord = CreateDiscordInstallation(temporary);
+    var resources = GetFixtureResources(temporary);
+    var firstOpenAsar = Path.Combine(temporary, "openasar-old.asar");
+    var currentOpenAsar = Path.Combine(temporary, "openasar-current.asar");
+    File.WriteAllText(firstOpenAsar, "OpenAsar old release");
+    File.WriteAllText(currentOpenAsar, "OpenAsar current release");
+
+    try
+    {
+        Assert(OpenAsarManager.InstallOrUpdate(discord, firstOpenAsar) == OpenAsarChange.Installed);
+        Assert(OpenAsarManager.InstallOrUpdate(discord, currentOpenAsar) == OpenAsarChange.Updated);
+        Assert(File.ReadAllText(Path.Combine(resources, "app.asar")) == "OpenAsar current release");
+        Assert(File.ReadAllText(Path.Combine(resources, "app.asar.backup")) == "Discord original");
+
+        Assert(OpenAsarManager.InstallOrUpdate(discord, currentOpenAsar) == OpenAsarChange.None);
+        Assert(File.ReadAllText(Path.Combine(resources, "app.asar.backup")) == "Discord original");
+    }
+    finally
+    {
+        Directory.Delete(temporary, recursive: true);
+    }
+}
+
 static void TestOpenAsarPreservesVencordPatch()
 {
     var temporary = CreateDiscordFixture(withVencordPatch: true);
     var discord = CreateDiscordInstallation(temporary);
     var resources = GetFixtureResources(temporary);
     var openAsar = Path.Combine(temporary, "verified-openasar.asar");
+    var updatedOpenAsar = Path.Combine(temporary, "updated-openasar.asar");
     File.WriteAllText(openAsar, "OpenAsar replacement");
+    File.WriteAllText(updatedOpenAsar, "OpenAsar updated replacement");
 
     try
     {
-        OpenAsarManager.Install(discord, openAsar);
+        Assert(OpenAsarManager.InstallOrUpdate(discord, openAsar) == OpenAsarChange.Installed);
         Assert(File.ReadAllText(Path.Combine(resources, "app.asar")) == "Vencord patcher");
         Assert(File.ReadAllText(Path.Combine(resources, "_app.asar")) == "OpenAsar replacement");
+
+        Assert(OpenAsarManager.InstallOrUpdate(discord, updatedOpenAsar) == OpenAsarChange.Updated);
+        Assert(File.ReadAllText(Path.Combine(resources, "app.asar")) == "Vencord patcher");
+        Assert(File.ReadAllText(Path.Combine(resources, "_app.asar")) == "OpenAsar updated replacement");
+        Assert(File.ReadAllText(Path.Combine(resources, "app.asar.backup")) == "Discord original");
 
         OpenAsarManager.Uninstall(discord);
         Assert(File.ReadAllText(Path.Combine(resources, "app.asar")) == "Vencord patcher");
@@ -301,7 +335,7 @@ static void TestOpenAsarBackupCollision()
 
     try
     {
-        AssertThrows<InvalidOperationException>(() => OpenAsarManager.Install(discord, openAsar));
+        AssertThrows<InvalidOperationException>(() => OpenAsarManager.InstallOrUpdate(discord, openAsar));
         Assert(File.ReadAllText(Path.Combine(resources, "app.asar")) == "Discord original");
         Assert(File.ReadAllText(Path.Combine(resources, "app.asar.backup")) == "user backup");
     }

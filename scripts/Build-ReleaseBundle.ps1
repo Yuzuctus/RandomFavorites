@@ -52,6 +52,40 @@ New-Item -ItemType Directory -Force -Path $outputRoot | Out-Null
 New-Item -ItemType Directory -Force -Path $distRoot, $toolsRoot, $licensesRoot | Out-Null
 
 try {
+    $openAsarRelease = Invoke-RestMethod `
+        -Uri "https://api.github.com/repos/GooseMod/OpenAsar/releases/tags/nightly" `
+        -Headers @{ "User-Agent" = "RandomFavoritesReleaseBuilder" }
+    $openAsarAsset = $openAsarRelease.assets |
+        Where-Object { $_.name -eq "app.asar" } |
+        Select-Object -First 1
+    if (-not $openAsarAsset -or $openAsarAsset.digest -notmatch '^sha256:[0-9a-fA-F]{64}$') {
+        throw "The official OpenAsar release does not publish a valid SHA-256 digest."
+    }
+    if ($openAsarAsset.browser_download_url -notmatch '^https://github\.com/GooseMod/OpenAsar/releases/download/') {
+        throw "The official OpenAsar asset has an unexpected download URL."
+    }
+    $openAsarPublishedAt = [DateTimeOffset]::Parse(
+        $openAsarRelease.published_at,
+        [Globalization.CultureInfo]::InvariantCulture
+    )
+    $openAsarVerificationPath = Join-Path $stagingRoot "OpenAsar.verify.asar"
+    Invoke-WebRequest `
+        -Uri $openAsarAsset.browser_download_url `
+        -OutFile $openAsarVerificationPath `
+        -UseBasicParsing
+    $expectedOpenAsarHash = $openAsarAsset.digest.Substring("sha256:".Length).ToLowerInvariant()
+    $actualOpenAsarHash = (Get-FileHash `
+        -LiteralPath $openAsarVerificationPath `
+        -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($actualOpenAsarHash -ne $expectedOpenAsarHash) {
+        throw "The official OpenAsar asset does not match its published SHA-256 digest."
+    }
+    $openAsarBytes = [IO.File]::ReadAllBytes($openAsarVerificationPath)
+    if (-not [Text.Encoding]::ASCII.GetString($openAsarBytes).Contains("OpenAsar")) {
+        throw "The official OpenAsar asset does not contain the expected signature."
+    }
+    Remove-Item -LiteralPath $openAsarVerificationPath
+
     Get-ChildItem -LiteralPath (Join-Path $vencordRoot "dist") -File |
         Where-Object { $_.Name -match '^(package\.json|patcher\.|preload\.|renderer\.)' } |
         Copy-Item -Destination $distRoot -Force
@@ -106,6 +140,8 @@ try {
         version = $Version
         vencordCommit = Get-GitCommit $vencordRoot
         pluginCommit = Get-GitCommit $randomFavoritesRoot
+        openAsarDigest = $openAsarAsset.digest.ToLowerInvariant()
+        openAsarPublishedAtUtc = $openAsarPublishedAt.ToUniversalTime().ToString("o")
         builtAtUtc = [DateTimeOffset]::UtcNow.ToString("o")
         requiredFiles = @(
             "dist/patcher.js"
@@ -135,6 +171,7 @@ try {
     Write-Host "Built $bundlePath"
     Write-Host "Vencord commit: $($manifest.vencordCommit)"
     Write-Host "RandomFavorites commit: $($manifest.pluginCommit)"
+    Write-Host "OpenAsar digest: $($manifest.openAsarDigest)"
 } finally {
     $resolvedStaging = [IO.Path]::GetFullPath($stagingRoot)
     $resolvedOutput = [IO.Path]::GetFullPath($outputRoot).TrimEnd(
