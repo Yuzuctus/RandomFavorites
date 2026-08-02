@@ -41,6 +41,7 @@ import {
     useState,
 } from "@webpack/common";
 
+import { AdaptiveRandomPicker, type RepeatStrength } from "./adaptiveRandom";
 import { formatGifContent } from "./messageFormatting";
 import {
     buildGifPreviewSources,
@@ -49,7 +50,6 @@ import {
     resolveGifContentUrl,
 } from "./previewMedia";
 import { buildSelectionPlan } from "./selectionPlan";
-import { ShuffleBag } from "./shuffleBag";
 import { pickUniform } from "./uniformRandom";
 
 type FavoriteKind = "all" | "gif" | "emoji" | "sticker";
@@ -122,8 +122,8 @@ const LottiePlayer = findByPropsLazy("loadAnimation") as {
 const activeChannels = new Set<string>();
 const concreteKinds: ConcreteFavoriteKind[] = ["gif", "emoji", "sticker"];
 
-const candidateBag = new ShuffleBag<FavoriteCandidate>(candidate => candidate.key);
-const kindBag = new ShuffleBag<ConcreteFavoriteKind>(kind => kind);
+const candidatePicker = new AdaptiveRandomPicker<FavoriteCandidate>(candidate => candidate.key);
+const kindPicker = new AdaptiveRandomPicker<ConcreteFavoriteKind>(kind => kind);
 
 const settings = definePluginSettings({
     showChatBarButton: {
@@ -269,8 +269,8 @@ const settings = definePluginSettings({
             return [
                 {
                     label: localize(
-                        "Balanced distribution (equal chance per type)",
-                        "Répartition équitable (même chance par type)",
+                        "Balanced distribution (equal base weight per type)",
+                        "Répartition équilibrée (même poids de base par type)",
                     ),
                     value: "balanced",
                     default: true,
@@ -338,19 +338,54 @@ const settings = definePluginSettings({
     avoidRepeats: {
         type: OptionType.BOOLEAN,
         get displayName() {
-            return localize("Avoid repeats", "Éviter les répétitions");
+            return localize("Reduce repeats", "Limiter les répétitions");
         },
         get description() {
             return localize(
-                "Cycle through available items and mixed categories before repeating whenever an alternative exists.",
-                "Fait le tour des éléments disponibles et des types en mode mixte avant de répéter lorsqu'une alternative existe.",
+                "Lower the odds of recent items without ever excluding them completely.",
+                "Réduit la probabilité des éléments récents sans jamais les exclure complètement.",
             );
         },
         default: true,
     },
+    repeatStrength: {
+        type: OptionType.SELECT,
+        get displayName() {
+            return localize(
+                "Repeat reduction strength",
+                "Intensité anti-répétition",
+            );
+        },
+        get description() {
+            return localize(
+                "Controls how quickly recent items recover their normal odds.",
+                "Contrôle la vitesse à laquelle les éléments récents retrouvent leur probabilité normale.",
+            );
+        },
+        get options() {
+            return [
+                {
+                    label: localize("Light (more surprises)", "Légère (plus de surprises)"),
+                    value: "light",
+                },
+                {
+                    label: localize("Balanced", "Équilibrée"),
+                    value: "balanced",
+                    default: true,
+                },
+                {
+                    label: localize("Strong (fewer repeats)", "Forte (moins de répétitions)"),
+                    value: "strong",
+                },
+            ] as const;
+        },
+    },
 }, {
     gifLabel: {
         disabled() { return !this.store.showGifLabel; },
+    },
+    repeatStrength: {
+        disabled() { return !this.store.avoidRepeats; },
     },
 });
 
@@ -654,10 +689,17 @@ function collectFavoritePools(kind: FavoriteKind, channel: Channel): FavoritePoo
     return pools;
 }
 
+function selectedRepeatStrength(): RepeatStrength {
+    return settings.store.repeatStrength ?? "balanced";
+}
+
 function pickFromKind(kind: ConcreteFavoriteKind, pools: FavoritePools) {
     const candidates = pools.candidates[kind];
     return settings.store.avoidRepeats
-        ? candidateBag.take(candidates)
+        ? candidatePicker.take(
+            candidates,
+            selectedRepeatStrength(),
+        )
         : pickUniform(candidates);
 }
 
@@ -672,7 +714,10 @@ function pickCandidateFromKinds(
 
     if (settings.store.mixMode === "balanced") {
         const selectedKind = settings.store.avoidRepeats
-            ? kindBag.take(availableKinds)
+            ? kindPicker.take(
+                availableKinds,
+                selectedRepeatStrength(),
+            )
             : pickUniform(availableKinds);
 
         return selectedKind ? pickFromKind(selectedKind, pools) : undefined;
@@ -683,7 +728,10 @@ function pickCandidateFromKinds(
     );
 
     return settings.store.avoidRepeats
-        ? candidateBag.take(allCandidates)
+        ? candidatePicker.take(
+            allCandidates,
+            selectedRepeatStrength(),
+        )
         : pickUniform(allCandidates);
 }
 
@@ -1273,8 +1321,8 @@ function RandomFavoritesMenu({ channel }: { channel: Channel; }) {
                             id="random-favorites-mix-balanced"
                             group="random-favorites-mix-mode"
                             label={localize(
-                                "Balanced distribution (equal chance per type)",
-                                "Répartition équitable (même chance par type)",
+                                "Balanced distribution (equal base weight per type)",
+                                "Répartition équilibrée (même poids de base par type)",
                             )}
                             checked={selection.mixMode === "balanced"}
                             dontCloseOnAction
@@ -1367,8 +1415,8 @@ const RandomFavoritesButton: ChatBarButtonFactory = ({
         )
         : pluginSettings.mixMode === "balanced"
             ? localize(
-                `Send one (equal type odds): ${selectionLabel} · Right-click to configure`,
-                `Envoyer un seul (types équiprobables) : ${selectionLabel} · Clic droit pour configurer`,
+                `Send one (balanced types): ${selectionLabel} · Right-click to configure`,
+                `Envoyer un seul (types équilibrés) : ${selectionLabel} · Clic droit pour configurer`,
             )
             : localize(
                 `Send one among: ${selectionLabel} · Right-click to configure`,
@@ -1473,7 +1521,7 @@ export default definePlugin({
 
     stop() {
         activeChannels.clear();
-        candidateBag.clear();
-        kindBag.clear();
+        candidatePicker.clear();
+        kindPicker.clear();
     },
 });

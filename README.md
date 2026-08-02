@@ -22,10 +22,12 @@ Git, Node.js et pnpm ne sont pas nécessaires. L'installateur prépare les fichi
 Les réglages sont en français si Discord est en français, sinon en anglais. Ils permettent notamment de choisir :
 
 - un élément de chaque type ou un seul élément parmi les types cochés ;
-- une répartition équitable (`33/33/33`, ou `50/50` avec deux types) ;
+- une répartition équilibrée sur la durée (base `33/33/33`, ou `50/50` avec deux types) ;
 - les spoilers et le texte `Gif random :` ;
 - toutes les emotes/stickers disponibles ou seulement les favoris ;
-- l'aperçu avant envoi et l'anti-répétition.
+- l'aperçu avant envoi et une réduction probabiliste des répétitions, avec une intensité légère, équilibrée ou forte.
+
+Le tirage utilise la source aléatoire cryptographique de l'environnement Discord. L'anti-répétition ne bloque jamais totalement un résultat : il réduit temporairement le poids des éléments récents, puis leur rend progressivement leur probabilité normale.
 
 ## Mettre à jour, réparer ou désinstaller
 

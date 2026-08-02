@@ -4,11 +4,11 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
-export type RandomSource = () => number;
+import { type RandomSource, secureRandom } from "./secureRandom";
 
 export function pickUniform<T>(
     items: readonly T[],
-    random: RandomSource = Math.random,
+    random: RandomSource = secureRandom,
 ): T | undefined {
     if (items.length === 0) return undefined;
 
