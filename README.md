@@ -6,8 +6,9 @@ Un plugin Vencord qui envoie un **GIF**, une **emote** ou un **sticker** aléato
 
 1. [Télécharge **RandomFavoritesSetup.exe**](https://github.com/Yuzuctus/RandomFavorites/releases/latest/download/RandomFavoritesSetup.exe).
 2. Ouvre le fichier et choisis ta version de Discord.
-3. Clique sur **Installer**.
-4. Dans Discord, va dans `Paramètres > Vencord > Plugins` et active **RandomFavorites**.
+3. Coche **OpenAsar** si tu veux aussi installer cette optimisation facultative.
+4. Clique sur **Installer**.
+5. Dans Discord, va dans `Paramètres > Vencord > Plugins` et active **RandomFavorites**.
 
 Git, Node.js et pnpm ne sont pas nécessaires. L'installateur prépare les fichiers pendant que Discord reste ouvert, puis le ferme seulement au moment de l'installation. **Discord n'est jamais relancé automatiquement** : tu le rouvres toi-même quand l'opération est terminée.
 
@@ -37,6 +38,8 @@ Rouvre le même EXE :
 - **Réparer** réapplique les fichiers après une mise à jour de Discord ;
 - **Désinstaller** peut retirer seulement RandomFavorites, Vencord en conservant ses données, ou tout supprimer.
 
+OpenAsar reste entièrement facultatif. Lorsqu'il est demandé, l'installateur récupère la release nightly officielle au moment de l'opération, vérifie l'empreinte SHA-256 publiée par GitHub, puis conserve l'archive Discord d'origine pour permettre sa restauration. Le menu **Désinstaller** permet de choisir explicitement de conserver ou de retirer OpenAsar.
+
 Le bundle de la dernière release est automatiquement recompilé lorsque le Vencord officiel change. L'EXE récupère donc le **dernier build Vencord vérifié compatible avec RandomFavorites**, même si le numéro de version du plugin n'a pas changé. Si une mise à jour Vencord casse la compilation, GitHub conserve le dernier bundle fonctionnel au lieu de distribuer une installation cassée.
 
 Les réglages non concernés sont conservés. Une sauvegarde est créée avant de retirer les réglages RandomFavorites.
@@ -48,7 +51,7 @@ Les réglages non concernés sont conservés. Une sauvegarde est créée avant d
 - rien n'est envoyé sans clic, commande ou confirmation explicite ;
 - les téléchargements de l'installateur sont vérifiés par SHA-256.
 
-RandomFavorites est un plugin tiers indépendant de Vencord, publié sous licence `GPL-3.0-or-later`.
+RandomFavorites est un plugin tiers indépendant de Vencord et d'OpenAsar, publié sous licence `GPL-3.0-or-later`.
 
 ### Ancienne installation par script
 
