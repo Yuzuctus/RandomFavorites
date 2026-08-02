@@ -123,8 +123,7 @@ public sealed class InstallerService : IDisposable
         var previousState = ReadState();
         string? stagedDirectory = null;
         string? openAsarPath = null;
-        var openAsarWasInstalled = IsOpenAsarInstalled(discord);
-        var openAsarInstalledByOperation = false;
+        var openAsarChange = OpenAsarChange.None;
 
         try
         {
@@ -133,16 +132,12 @@ public sealed class InstallerService : IDisposable
                 _layout,
                 progress,
                 cancellationToken);
-            if (installOpenAsar && !openAsarWasInstalled)
+            if (installOpenAsar)
             {
                 openAsarPath = await _releaseClient.DownloadVerifiedOpenAsarAsync(
                     _layout,
                     progress,
                     cancellationToken);
-            }
-            else if (installOpenAsar)
-            {
-                WriteLog("OpenAsar est déjà installé ; aucune modification nécessaire.");
             }
 
             progress?.Report(new InstallerProgress(
@@ -179,20 +174,24 @@ public sealed class InstallerService : IDisposable
                 {
                     progress?.Report(new InstallerProgress(
                         0.88,
-                        "Installation d'OpenAsar",
-                        "Remplacement sécurisé de l'archive Discord…",
+                        "Actualisation d'OpenAsar",
+                        "Comparaison avec la version installée…",
                         true));
-                    OpenAsarManager.Install(discord, openAsarPath);
-                    openAsarInstalledByOperation = true;
+                    openAsarChange = OpenAsarManager.InstallOrUpdate(discord, openAsarPath);
                     if (!IsOpenAsarInstalled(discord))
                         throw new InvalidDataException("OpenAsar n'a pas pu être validé après son installation.");
-                    WriteLog("OpenAsar installé et validé avec succès.");
+                    WriteLog(openAsarChange switch
+                    {
+                        OpenAsarChange.Installed => "OpenAsar installé et validé avec succès.",
+                        OpenAsarChange.Updated => "OpenAsar mis à jour et validé avec succès.",
+                        _ => "OpenAsar utilise déjà la dernière release officielle.",
+                    });
                 }
             }
             catch (Exception installError)
             {
                 WriteLog($"La nouvelle version n'a pas pu être activée : {installError.Message}");
-                if (openAsarInstalledByOperation)
+                if (openAsarChange == OpenAsarChange.Installed)
                 {
                     try
                     {
@@ -252,14 +251,14 @@ public sealed class InstallerService : IDisposable
                 1,
                 "Installation terminée",
                 installOpenAsar
-                    ? $"RandomFavorites {manifest.Version} et OpenAsar sont prêts. Relance Discord quand tu le souhaites."
+                    ? $"RandomFavorites {manifest.Version} est prêt et OpenAsar est à jour. Relance Discord quand tu le souhaites."
                     : $"RandomFavorites {manifest.Version} est prêt. Relance Discord quand tu le souhaites."));
             WriteLog($"RandomFavorites {manifest.Version} installé avec succès.");
             return new InstallResult(
                 true,
                 "RandomFavorites est installé",
                 installOpenAsar
-                    ? "OpenAsar est actif. Discord est resté fermé : relance-le manuellement, puis active RandomFavorites dans Paramètres > Vencord > Plugins si nécessaire."
+                    ? "OpenAsar utilise la dernière release officielle. Discord est resté fermé : relance-le manuellement, puis active RandomFavorites dans Paramètres > Vencord > Plugins si nécessaire."
                     : "Discord est resté fermé. Relance-le manuellement, puis active le plugin dans Paramètres > Vencord > Plugins si nécessaire.",
                 manifest.Version);
         }
@@ -497,6 +496,11 @@ public sealed class InstallerService : IDisposable
             || !Regex.IsMatch(manifest.PluginCommit, "^[0-9a-fA-F]{40}$"))
         {
             throw new InvalidDataException("Les identifiants de source du manifeste sont invalides.");
+        }
+        if (!Regex.IsMatch(manifest.OpenAsarDigest, "^sha256:[0-9a-fA-F]{64}$")
+            || manifest.OpenAsarPublishedAtUtc == default)
+        {
+            throw new InvalidDataException("La release OpenAsar du manifeste est invalide.");
         }
 
         foreach (var requiredFile in RequiredBundleFiles

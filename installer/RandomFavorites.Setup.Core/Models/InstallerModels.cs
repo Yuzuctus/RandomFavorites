@@ -46,6 +46,10 @@ public sealed class BundleManifest
 
     public string PluginCommit { get; init; } = "";
 
+    public string OpenAsarDigest { get; init; } = "";
+
+    public DateTimeOffset OpenAsarPublishedAtUtc { get; init; }
+
     public DateTimeOffset BuiltAtUtc { get; init; }
 
     public string[] RequiredFiles { get; init; } = [];

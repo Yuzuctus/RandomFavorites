@@ -1,4 +1,4 @@
-name: Refresh current Vencord bundle
+name: Refresh current Vencord and OpenAsar release
 
 on:
   schedule:
@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
   refresh:
-    name: Rebuild only when official Vencord changed
+    name: Rebuild when Vencord or OpenAsar changed
     runs-on: windows-latest
     timeout-minutes: 40
     steps:
@@ -24,7 +24,7 @@ jobs:
           fetch-depth: 0
           path: automation
 
-      - name: Compare the published bundle with official Vencord
+      - name: Compare the published release with Vencord and OpenAsar
         id: current
         shell: pwsh
         env:
@@ -45,6 +45,12 @@ jobs:
             throw "Could not resolve the current official Vencord commit."
           }
 
+          $openAsarDigest = gh api repos/GooseMod/OpenAsar/releases/tags/nightly `
+            --jq '.assets[] | select(.name == "app.asar") | .digest'
+          if ($LASTEXITCODE -ne 0 -or $openAsarDigest -notmatch '^sha256:[0-9a-f]{64}$') {
+            throw "Could not resolve the current official OpenAsar digest."
+          }
+
           New-Item -ItemType Directory -Force -Path current-manifest | Out-Null
           gh release download $tag `
             --repo $env:GITHUB_REPOSITORY `
@@ -58,7 +64,8 @@ jobs:
             try {
               $manifest = Get-Content -Raw -LiteralPath $manifestPath | ConvertFrom-Json
               $needsRefresh = $manifest.pluginCommit -ne $pluginCommit `
-                -or $manifest.vencordCommit -ne $vencordCommit
+                -or $manifest.vencordCommit -ne $vencordCommit `
+                -or $manifest.openAsarDigest -ne $openAsarDigest
             } catch {
               Write-Warning "The published manifest is invalid and will be rebuilt."
             }
@@ -67,12 +74,13 @@ jobs:
           "tag=$tag" >> $env:GITHUB_OUTPUT
           "plugin_commit=$pluginCommit" >> $env:GITHUB_OUTPUT
           "vencord_commit=$vencordCommit" >> $env:GITHUB_OUTPUT
+          "openasar_digest=$openAsarDigest" >> $env:GITHUB_OUTPUT
           "needs_refresh=$($needsRefresh.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
 
           if ($needsRefresh) {
-            "Official Vencord changed; rebuilding the current RandomFavorites release." >> $env:GITHUB_STEP_SUMMARY
+            "Official Vencord or OpenAsar changed; rebuilding every current release asset." >> $env:GITHUB_STEP_SUMMARY
           } else {
-            "The published bundle already contains the current official Vencord commit." >> $env:GITHUB_STEP_SUMMARY
+            "The published release already matches current Vencord and OpenAsar." >> $env:GITHUB_STEP_SUMMARY
           }
 
       - name: Check out the latest RandomFavorites release
@@ -95,6 +103,12 @@ jobs:
         uses: actions/setup-node@v5
         with:
           node-version: 22
+
+      - name: Set up .NET
+        if: steps.current.outputs.needs_refresh == 'true'
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 8.0.x
 
       - name: Enable Vencord's pinned pnpm
         if: steps.current.outputs.needs_refresh == 'true'
@@ -142,7 +156,31 @@ jobs:
             -OutputDirectory release-assets `
             -Version "${{ steps.current.outputs.tag }}"
 
-      - name: Replace only the current bundle assets
+      - name: Rebuild the self-contained installer
+        if: steps.current.outputs.needs_refresh == 'true'
+        shell: pwsh
+        run: |
+          $version = ("${{ steps.current.outputs.tag }}").TrimStart("v")
+          dotnet publish random-favorites/installer/RandomFavorites.Setup/RandomFavorites.Setup.csproj `
+            -c Release -r win-x64 --self-contained true `
+            -p:Version=$version `
+            -o release-assets/setup
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Copy-Item -LiteralPath release-assets/setup/RandomFavoritesSetup.exe `
+            -Destination release-assets/RandomFavoritesSetup.exe
+          $setupPath = Join-Path $PWD "release-assets/RandomFavoritesSetup.exe"
+          $setupHash = (Get-FileHash -LiteralPath $setupPath -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$setupHash  RandomFavoritesSetup.exe" |
+            Set-Content -LiteralPath "$setupPath.sha256" -Encoding ascii -NoNewline
+
+      - name: Run installer safety smoke tests
+        if: steps.current.outputs.needs_refresh == 'true'
+        run: >-
+          dotnet run
+          --project random-favorites/installer/RandomFavorites.Setup.SmokeTests/RandomFavorites.Setup.SmokeTests.csproj
+          -c Release
+
+      - name: Replace every current release asset
         if: steps.current.outputs.needs_refresh == 'true'
         shell: pwsh
         env:
@@ -152,7 +190,9 @@ jobs:
             release-assets/RandomFavoritesBundle.zip `
             release-assets/RandomFavoritesBundle.zip.sha256 `
             release-assets/RandomFavoritesBundle.manifest.json `
+            release-assets/RandomFavoritesSetup.exe `
+            release-assets/RandomFavoritesSetup.exe.sha256 `
             --repo $env:GITHUB_REPOSITORY `
             --clobber
 
-          "Bundle refreshed with Vencord commit `${{ steps.current.outputs.vencord_commit }}`." >> $env:GITHUB_STEP_SUMMARY
+          "Release refreshed with Vencord `${{ steps.current.outputs.vencord_commit }}` and OpenAsar `${{ steps.current.outputs.openasar_digest }}`." >> $env:GITHUB_STEP_SUMMARY

@@ -34,13 +34,15 @@ Le tirage utilise la source aléatoire cryptographique de l'environnement Discor
 
 Rouvre le même EXE :
 
-- **Installer / Mettre à jour** récupère la dernière version stable ;
-- **Réparer** réapplique les fichiers après une mise à jour de Discord ;
+- **Installer / Mettre à jour** récupère la dernière version stable et actualise OpenAsar lorsqu'il est actif ;
+- **Réparer** réapplique les fichiers après une mise à jour de Discord et revérifie OpenAsar ;
 - **Désinstaller** peut retirer seulement RandomFavorites, Vencord en conservant ses données, ou tout supprimer.
 
-OpenAsar reste entièrement facultatif. Lorsqu'il est demandé, l'installateur récupère la release nightly officielle au moment de l'opération, vérifie l'empreinte SHA-256 publiée par GitHub, puis conserve l'archive Discord d'origine pour permettre sa restauration. Le menu **Désinstaller** permet de choisir explicitement de conserver ou de retirer OpenAsar.
+OpenAsar reste entièrement facultatif. Lorsqu'il est actif, chaque opération **Installer / Mettre à jour** ou **Réparer** récupère la release nightly officielle, vérifie l'empreinte SHA-256 publiée par GitHub et compare son contenu à la copie installée. Une mise à jour remplace uniquement OpenAsar : l'archive Discord d'origine reste intacte pour permettre sa restauration. Le menu **Désinstaller** permet de choisir explicitement de conserver ou de retirer OpenAsar.
 
-Le bundle de la dernière release est automatiquement recompilé lorsque le Vencord officiel change. L'EXE récupère donc le **dernier build Vencord vérifié compatible avec RandomFavorites**, même si le numéro de version du plugin n'a pas changé. Si une mise à jour Vencord casse la compilation, GitHub conserve le dernier bundle fonctionnel au lieu de distribuer une installation cassée.
+GitHub compare chaque heure le commit Vencord officiel et le digest SHA-256 de la nightly OpenAsar aux valeurs du manifeste publié. Si l'un des deux change, le bundle et l'EXE de la dernière release sont reconstruits, les tests sont relancés, puis tous les assets sont remplacés seulement en cas de succès. L'EXE récupère donc le **dernier build Vencord vérifié compatible avec RandomFavorites** et connaît la release OpenAsar testée, même si le numéro de version du plugin n'a pas changé. Si une mise à jour casse la compilation ou les tests, GitHub conserve la dernière publication fonctionnelle.
+
+La surveillance GitHub ne modifie pas silencieusement Discord sur les PC déjà installés : il faut rouvrir l'EXE et cliquer sur **Mettre à jour** ou **Réparer** pour appliquer les nouvelles versions localement.
 
 Les réglages non concernés sont conservés. Une sauvegarde est créée avant de retirer les réglages RandomFavorites.
 
