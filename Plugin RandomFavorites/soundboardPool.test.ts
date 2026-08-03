@@ -9,7 +9,9 @@ import { describe, it } from "node:test";
 
 import {
     collectUsableSoundboardSounds,
-    shouldInsertRandomSoundboardSection,
+    insertRandomSoundboardCategory,
+    isRandomSoundboardCategory,
+    RANDOM_SOUNDBOARD_CATEGORY_KEY,
     soundboardCandidateKey,
 } from "./soundboardPool";
 
@@ -56,27 +58,65 @@ describe("soundboardPool", () => {
         );
     });
 
-    it("inserts immediately after Favorites, before frequent and guild sections", () => {
+    it("inserts the virtual server immediately after Favorites", () => {
         const categories = [
-            { categoryInfo: { type: 0 } },
-            { categoryInfo: { type: 4 } },
-            { categoryInfo: { type: 1, guild: { id: "current" } } },
+            { key: "favorites", categoryInfo: { type: 0 } },
+            { key: "frequent", categoryInfo: { type: 4 } },
+            { key: "current", categoryInfo: { type: 1, guild: { id: "current" } } },
         ];
+        const randomCategory = {
+            key: RANDOM_SOUNDBOARD_CATEGORY_KEY,
+            categoryInfo: { type: 1, guild: { id: "current" } },
+        };
+        const result = insertRandomSoundboardCategory(
+            categories,
+            randomCategory,
+            "current",
+        );
 
-        assert.equal(shouldInsertRandomSoundboardSection(categories, 0, "current"), false);
-        assert.equal(shouldInsertRandomSoundboardSection(categories, 1, "current"), true);
-        assert.equal(shouldInsertRandomSoundboardSection(categories, 2, "current"), false);
+        assert.deepEqual(result.map(category => category.key), [
+            "favorites",
+            RANDOM_SOUNDBOARD_CATEGORY_KEY,
+            "frequent",
+            "current",
+        ]);
+        assert.equal(isRandomSoundboardCategory(result[1]), true);
     });
 
-    it("falls back to the current guild when Discord omits an empty Favorites section", () => {
+    it("falls back to immediately before the current guild", () => {
         const categories = [
-            { categoryInfo: { type: 4 } },
-            { categoryInfo: { type: 1, guild: { id: "current" } } },
-            { categoryInfo: { type: 1, guild: { id: "other" } } },
+            { key: "frequent", categoryInfo: { type: 4 } },
+            { key: "current", categoryInfo: { type: 1, guild: { id: "current" } } },
+            { key: "other", categoryInfo: { type: 1, guild: { id: "other" } } },
         ];
+        const randomCategory = {
+            key: RANDOM_SOUNDBOARD_CATEGORY_KEY,
+            categoryInfo: { type: 1, guild: { id: "current" } },
+        };
+        const result = insertRandomSoundboardCategory(
+            categories,
+            randomCategory,
+            "current",
+        );
 
-        assert.equal(shouldInsertRandomSoundboardSection(categories, 0, "current"), false);
-        assert.equal(shouldInsertRandomSoundboardSection(categories, 1, "current"), true);
-        assert.equal(shouldInsertRandomSoundboardSection(categories, 2, "current"), false);
+        assert.deepEqual(result.map(category => category.key), [
+            "frequent",
+            RANDOM_SOUNDBOARD_CATEGORY_KEY,
+            "current",
+            "other",
+        ]);
+    });
+
+    it("does not inject the virtual server into search-only results", () => {
+        const categories = [{ key: "search", categoryInfo: { type: 9 } }];
+        const randomCategory = {
+            key: RANDOM_SOUNDBOARD_CATEGORY_KEY,
+            categoryInfo: { type: 1, guild: { id: "current" } },
+        };
+
+        assert.equal(
+            insertRandomSoundboardCategory(categories, randomCategory, "current"),
+            categories,
+        );
     });
 });

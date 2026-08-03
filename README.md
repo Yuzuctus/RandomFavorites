@@ -18,8 +18,8 @@ Git, Node.js et pnpm ne sont pas nécessaires. L'installateur prépare les fichi
 
 - **Clic gauche sur le dé** : effectue le tirage configuré.
 - **Clic droit sur le dé** : choisit GIF, emote, sticker et le mode de tirage.
-- **Aperçu sécurisé** : affiche le résultat dans une fenêtre privée avant tout envoi. Rien n'est envoyé tant que tu ne confirmes pas.
-- **Soundboard aléatoire** : dans le sélecteur de soundboard, la ligne placée avant le serveur actuel choisit un son utilisable. En mode direct, il est joué immédiatement ; avec **Aperçu sécurisé**, l'écoute est locale et le bouton vocal reste verrouillé jusqu'à ce que tu aies entendu l'aperçu.
+- **Aperçu sécurisé** : affiche le GIF, l'emote ou le sticker dans une fenêtre privée avant tout envoi. Rien n'est envoyé tant que tu ne confirmes pas.
+- **Soundboard aléatoire** : le sélecteur contient un serveur virtuel **FavoriteRandom**, juste sous les favoris. **Lecture directe** joue immédiatement un son aléatoire ; **Aperçu sécurisé** permet de l'écouter localement avant de confirmer sa lecture dans le vocal. Ces deux actions sont indépendantes du réglage d'aperçu des GIFs, emotes et stickers.
 
 Les réglages sont en français si Discord est en français, sinon en anglais. Ils permettent notamment de choisir :
 
