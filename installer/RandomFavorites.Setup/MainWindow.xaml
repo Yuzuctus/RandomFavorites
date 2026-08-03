@@ -3,232 +3,297 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="RandomFavorites"
         Icon="Assets/RandomFavorites.ico"
-        Width="620"
-        Height="420"
-        MinWidth="560"
-        MinHeight="390"
+        Width="660"
+        Height="610"
+        MinWidth="580"
+        MinHeight="480"
         WindowStartupLocation="CenterScreen"
         WindowStyle="None"
-        ResizeMode="CanResize"
+        ResizeMode="NoResize"
         UseLayoutRounding="True"
         SnapsToDevicePixels="True"
-        Background="{StaticResource WindowBackground}">
+        Background="{StaticResource WindowBackground}"
+        AutomationProperties.Name="Installation de RandomFavorites"
+        Loaded="MainWindow_OnLoaded"
+        PreviewKeyDown="MainWindow_OnPreviewKeyDown">
     <WindowChrome.WindowChrome>
-        <WindowChrome CaptionHeight="38" ResizeBorderThickness="5" CornerRadius="6" GlassFrameThickness="0" />
+        <WindowChrome CaptionHeight="96"
+                      ResizeBorderThickness="0"
+                      CornerRadius="10"
+                      GlassFrameThickness="0" />
     </WindowChrome.WindowChrome>
 
-    <Grid>
-        <Grid.RowDefinitions>
-            <RowDefinition Height="38" />
-            <RowDefinition Height="*" />
-        </Grid.RowDefinitions>
+    <Border Background="{StaticResource WindowBackground}"
+            BorderBrush="{StaticResource BorderSubtle}"
+            BorderThickness="1"
+            CornerRadius="10">
+        <Grid ClipToBounds="True">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="104" />
+                <RowDefinition Height="*" />
+                <RowDefinition Height="68" />
+            </Grid.RowDefinitions>
 
-        <Border Grid.Row="0" Background="#162422" BorderBrush="#29413D" BorderThickness="0,0,0,1">
-            <Grid Margin="12,0,3,0">
+            <Grid Grid.Row="0" Margin="28,0,12,0">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="Auto" />
-                    <ColumnDefinition Width="38" />
-                    <ColumnDefinition Width="38" />
-                    <ColumnDefinition Width="38" />
                 </Grid.ColumnDefinitions>
 
                 <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                    <Image Source="Assets/RandomFavorites.ico" Width="16" Height="16" Margin="0,0,8,0" />
-                    <TextBlock Text="RandomFavorites" FontWeight="SemiBold" FontSize="11"
-                               VerticalAlignment="Center" />
-                </StackPanel>
-
-                <TextBlock x:Name="VersionText" Grid.Column="1" Text="Setup"
-                           Foreground="{StaticResource TextMuted}" FontSize="9"
-                           VerticalAlignment="Center" Margin="0,0,8,0" />
-
-                <Button x:Name="MinimizeButton" Grid.Column="2" Content="&#x2014;"
-                        Style="{StaticResource TitleBarButton}" FontSize="12"
-                        WindowChrome.IsHitTestVisibleInChrome="True"
-                        AutomationProperties.Name="Réduire" ToolTip="Réduire"
-                        Click="MinimizeButton_OnClick" />
-                <Button x:Name="MaximizeButton" Grid.Column="3" Content="&#x25A1;"
-                        Style="{StaticResource TitleBarButton}" FontSize="14"
-                        WindowChrome.IsHitTestVisibleInChrome="True"
-                        AutomationProperties.Name="Agrandir" ToolTip="Agrandir"
-                        Click="MaximizeButton_OnClick" />
-                <Button x:Name="CloseButton" Grid.Column="4" Content="&#x00D7;"
-                        Style="{StaticResource TitleBarButton}" FontSize="17"
-                        WindowChrome.IsHitTestVisibleInChrome="True"
-                        AutomationProperties.Name="Fermer" ToolTip="Fermer"
-                        Click="CloseButton_OnClick" />
-            </Grid>
-        </Border>
-
-        <Grid Grid.Row="1" MaxWidth="500" Margin="28,22,28,18"
-              HorizontalAlignment="Stretch">
-            <Grid.RowDefinitions>
-                <RowDefinition Height="Auto" />
-                <RowDefinition Height="Auto" />
-                <RowDefinition Height="Auto" />
-                <RowDefinition Height="*" />
-                <RowDefinition Height="Auto" />
-                <RowDefinition Height="Auto" />
-            </Grid.RowDefinitions>
-
-            <Grid>
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="170" />
-                </Grid.ColumnDefinitions>
-
-                <TextBlock x:Name="InstalledStatusText" Text="Vérification…"
-                           FontSize="17" FontWeight="SemiBold" VerticalAlignment="Center"
-                           Margin="0,0,18,0" TextTrimming="CharacterEllipsis" />
-
-                <StackPanel Grid.Column="1">
-                    <ComboBox x:Name="DiscordBranchCombo"
-                              AutomationProperties.Name="Version de Discord"
-                              DisplayMemberPath="DisplayName"
-                              SelectionChanged="DiscordBranchCombo_OnSelectionChanged" />
-                    <TextBlock x:Name="DiscordDetectionText" Text="Discord introuvable"
-                               Visibility="Collapsed"
-                               Foreground="{StaticResource TextMuted}" FontSize="9"
-                               Margin="2,5,0,0" TextTrimming="CharacterEllipsis" />
-                </StackPanel>
-            </Grid>
-
-            <Grid Grid.Row="1" Margin="2,15,2,0">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="Auto" />
-                    <ColumnDefinition Width="*" />
-                </Grid.ColumnDefinitions>
-                <CheckBox x:Name="InstallOpenAsarCheck" Content="OpenAsar"
-                          AutomationProperties.Name="Installer OpenAsar"
-                          VerticalAlignment="Center" FontSize="10"
-                          ToolTip="Optionnel · alternative légère au app.asar de Discord" />
-                <TextBlock x:Name="OpenAsarStatusText" Grid.Column="1"
-                           Text="Optionnel · démarrage plus rapide"
-                           Foreground="{StaticResource TextMuted}" FontSize="9"
-                           VerticalAlignment="Center" HorizontalAlignment="Right" />
-            </Grid>
-
-            <Grid Grid.Row="2" Margin="0,15,0,0">
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="46" />
-                    <RowDefinition Height="10" />
-                    <RowDefinition Height="42" />
-                </Grid.RowDefinitions>
-
-                <Button x:Name="InstallButton" Content="Installer"
-                        Style="{StaticResource ActionButton}" FontSize="12"
-                        Click="InstallButton_OnClick" />
-
-                <Grid Grid.Row="2">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*" />
-                        <ColumnDefinition Width="10" />
-                        <ColumnDefinition Width="*" />
-                    </Grid.ColumnDefinitions>
-                    <Button x:Name="RepairButton" Content="Réparer"
-                            Style="{StaticResource SecondaryButton}" FontSize="11"
-                            Click="RepairButton_OnClick" />
-                    <Button x:Name="UninstallButton" Grid.Column="2" Content="Désinstaller"
-                            Style="{StaticResource SecondaryButton}" FontSize="11"
-                            Click="UninstallButton_OnClick" />
-                </Grid>
-            </Grid>
-
-            <TextBlock Grid.Row="3" Text="Discord restera fermé après l’opération."
-                       Foreground="{StaticResource TextMuted}" FontSize="9"
-                       Margin="2,10,0,0" />
-
-            <Grid Grid.Row="4" Margin="0,12,0,8">
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto" />
-                    <RowDefinition Height="Auto" />
-                    <RowDefinition Height="*" />
-                </Grid.RowDefinitions>
-
-                <Border x:Name="ResultPanel" Visibility="Collapsed" Background="#1C3932"
-                        BorderBrush="#3A6C60" BorderThickness="1" CornerRadius="6"
-                        Padding="10" Margin="0,0,0,7">
-                    <StackPanel>
-                        <TextBlock x:Name="ResultTitle" Text="Terminé" FontWeight="SemiBold"
-                                   Foreground="{StaticResource Success}" FontSize="10" />
-                        <TextBlock x:Name="ResultMessage" Foreground="{StaticResource TextSecondary}"
-                                   TextWrapping="Wrap" Margin="0,2,0,0" FontSize="9" />
-                    </StackPanel>
-                </Border>
-
-                <Expander x:Name="LogExpander" Grid.Row="1" Header="Journal"
-                          Foreground="{StaticResource TextMuted}" IsExpanded="False" FontSize="9">
-                    <Border Background="#101D1B" BorderBrush="#29443F" BorderThickness="1"
-                            CornerRadius="5" Margin="0,5,0,0" Padding="8" MaxHeight="76">
-                        <ScrollViewer x:Name="LogScrollViewer" VerticalScrollBarVisibility="Auto">
-                            <TextBlock x:Name="LogText" FontFamily="Cascadia Mono, Consolas" FontSize="8"
-                                       Foreground="#86A09B" TextWrapping="Wrap" />
-                        </ScrollViewer>
+                    <Border Width="48" Height="48" CornerRadius="10"
+                            Background="{StaticResource Accent}">
+                        <Path Width="24" Height="24"
+                              Fill="{StaticResource AccentInk}"
+                              Data="{StaticResource StarGeometry}" />
                     </Border>
-                </Expander>
+                    <StackPanel Margin="14,0,0,0" VerticalAlignment="Center">
+                        <TextBlock Text="RandomFavorites" FontSize="20" FontWeight="SemiBold" />
+                        <TextBlock Text="Vencord personnalisé" Style="{StaticResource SecondaryText}"
+                                   Margin="0,2,0,0" />
+                    </StackPanel>
+                </StackPanel>
+
+                <Canvas Grid.Column="0" HorizontalAlignment="Right" Width="210" Height="92"
+                        IsHitTestVisible="False" Opacity="0.16" ClipToBounds="True">
+                    <Path Stroke="{StaticResource Accent}" StrokeThickness="1"
+                          Data="M8,4 C66,18 75,70 154,64 C180,62 194,72 220,84" />
+                    <Path Stroke="{StaticResource Accent}" StrokeThickness="1"
+                          Data="M66,-8 C96,20 111,44 166,48 C188,50 205,59 224,72" />
+                    <Path Canvas.Left="62" Canvas.Top="18" Width="10" Height="10"
+                          Fill="{StaticResource Accent}" Data="{StaticResource StarGeometry}" />
+                    <Path Canvas.Left="156" Canvas.Top="45" Width="15" Height="15"
+                          Fill="{StaticResource Accent}" Data="{StaticResource StarGeometry}" />
+                </Canvas>
+
+                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Top"
+                            WindowChrome.IsHitTestVisibleInChrome="True">
+                    <Button x:Name="MinimizeButton" Style="{StaticResource TitleBarButton}"
+                            AutomationProperties.Name="Réduire" ToolTip="Réduire"
+                            Click="MinimizeButton_OnClick">
+                        <Path Width="12" Height="12" Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
+                              StrokeThickness="1.7" StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                              Data="{StaticResource MinimizeGeometry}" />
+                    </Button>
+                    <Button x:Name="CloseButton" Style="{StaticResource TitleBarButton}"
+                            AutomationProperties.Name="Fermer" ToolTip="Fermer"
+                            Click="CloseButton_OnClick">
+                        <Path Width="12" Height="12" Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
+                              StrokeThickness="1.7" StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                              Data="{StaticResource CloseGeometry}" />
+                    </Button>
+                </StackPanel>
             </Grid>
 
-            <StackPanel Grid.Row="5">
-                <Grid Margin="0,0,0,6">
+            <Border Grid.Row="0" VerticalAlignment="Bottom" Height="1"
+                    Background="{StaticResource BorderSubtle}" />
+
+            <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto"
+                          HorizontalScrollBarVisibility="Disabled"
+                          Focusable="False">
+                <StackPanel Width="460" Margin="0,22,0,20">
+                    <TextBlock Text="Discord" Style="{StaticResource BodyText}"
+                               FontWeight="SemiBold" Margin="0,0,0,8" />
+                    <ComboBox x:Name="DiscordBranchCombo"
+                              DisplayMemberPath="DisplayName"
+                              AutomationProperties.Name="Installation Discord"
+                              AutomationProperties.HelpText="Choisissez une installation Discord détectée sur ce PC."
+                              SelectionChanged="DiscordBranchCombo_OnSelectionChanged" />
+                    <Button x:Name="DetectDiscordButton" Content="Relancer la détection"
+                            Style="{StaticResource QuietButton}"
+                            HorizontalAlignment="Left" Margin="-12,4,0,0"
+                            Visibility="Collapsed"
+                            AutomationProperties.Name="Relancer la détection de Discord"
+                            Click="DetectDiscordButton_OnClick" />
+
+                    <Border x:Name="StatusPanel" Margin="0,20,0,0" Padding="16"
+                            MinHeight="92" Background="{StaticResource Surface}"
+                            BorderBrush="{StaticResource BorderSubtle}" BorderThickness="1"
+                            CornerRadius="9"
+                            AutomationProperties.LiveSetting="Polite">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="52" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <Border x:Name="StatusIconSurface" Width="44" Height="44"
+                                    CornerRadius="22" Background="{StaticResource AccentSurface}"
+                                    VerticalAlignment="Center">
+                                <Path x:Name="StatusIcon" Width="18" Height="18" Stretch="Uniform"
+                                      Stroke="{StaticResource Accent}" Fill="Transparent"
+                                      StrokeThickness="2" StrokeStartLineCap="Round"
+                                      StrokeEndLineCap="Round" StrokeLineJoin="Round"
+                                      Data="{StaticResource StarGeometry}" />
+                            </Border>
+                            <StackPanel Grid.Column="1" Margin="12,0,0,0" VerticalAlignment="Center">
+                                <TextBlock x:Name="StatusTitleText" Text="Préparation de l'installeur"
+                                           FontSize="17" FontWeight="SemiBold" TextWrapping="Wrap" />
+                                <TextBlock x:Name="StatusDetailText" Text="Lecture de la configuration locale…"
+                                           Style="{StaticResource SecondaryText}" TextWrapping="Wrap"
+                                           Margin="0,3,0,0" />
+                            </StackPanel>
+                        </Grid>
+                    </Border>
+
+                    <Grid Margin="0,20,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel>
+                            <TextBlock Text="OpenAsar" Style="{StaticResource BodyText}"
+                                       FontWeight="SemiBold" />
+                            <TextBlock x:Name="OpenAsarDetailText"
+                                       Text="Démarrage de Discord plus rapide"
+                                       Style="{StaticResource SecondaryText}" Margin="0,1,12,0"
+                                       TextWrapping="Wrap" />
+                        </StackPanel>
+                        <ToggleButton x:Name="OpenAsarToggle" Grid.Column="1"
+                                      Style="{StaticResource SwitchToggle}"
+                                      VerticalAlignment="Center"
+                                      AutomationProperties.Name="Activer OpenAsar"
+                                      AutomationProperties.HelpText="OpenAsar est facultatif et peut accélérer le démarrage de Discord."
+                                      Checked="OpenAsarToggle_OnChanged"
+                                      Unchecked="OpenAsarToggle_OnChanged" />
+                    </Grid>
+
+                    <Button x:Name="PrimaryActionButton" Margin="0,24,0,0"
+                            Style="{StaticResource PrimaryButton}"
+                            IsDefault="True"
+                            AutomationProperties.Name="Installer RandomFavorites"
+                            Click="PrimaryActionButton_OnClick">
+                        <StackPanel Orientation="Horizontal">
+                            <Path x:Name="PrimaryActionIcon" Width="18" Height="18" Margin="0,0,11,0"
+                                  Stretch="Uniform" Stroke="{StaticResource AccentInk}"
+                                  StrokeThickness="2" StrokeStartLineCap="Round"
+                                  StrokeEndLineCap="Round" StrokeLineJoin="Round"
+                                  Data="{StaticResource DownloadGeometry}" />
+                            <TextBlock x:Name="PrimaryActionText" Text="Installer"
+                                       Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
+                                       FontSize="17" FontWeight="SemiBold" />
+                        </StackPanel>
+                    </Button>
+
+                    <ProgressBar x:Name="OperationProgress" Margin="0,12,0,0"
+                                 Minimum="0" Maximum="100" Value="0"
+                                 Visibility="Collapsed"
+                                 AutomationProperties.Name="Progression de l'installation" />
+
+                    <Grid Margin="0,10,0,0" MinHeight="32">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock x:Name="ContextText" Text="Discord sera fermé pendant l'installation."
+                                   Style="{StaticResource SecondaryText}" TextAlignment="Center"
+                                   VerticalAlignment="Center" TextWrapping="Wrap"
+                                   AutomationProperties.LiveSetting="Polite" />
+                        <Button x:Name="CancelOperationButton" Grid.Column="1" Content="Annuler"
+                                Style="{StaticResource QuietButton}" Margin="10,-6,-12,-6"
+                                Visibility="Collapsed"
+                                Click="CancelOperationButton_OnClick" />
+                    </Grid>
+
+                    <Border x:Name="AdvancedPanel" Margin="0,18,0,0" Padding="16,12"
+                            Visibility="Collapsed" Background="{StaticResource Surface}"
+                            BorderBrush="{StaticResource BorderSubtle}" BorderThickness="1"
+                            CornerRadius="9">
+                        <StackPanel>
+                            <Grid Margin="0,4">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Text="Build Vencord installée" Style="{StaticResource SecondaryText}" />
+                                <TextBlock x:Name="InstalledVencordText" Grid.Column="1" Text="—" FontSize="14" />
+                            </Grid>
+                            <Grid Margin="0,4">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Text="Build disponible" Style="{StaticResource SecondaryText}" />
+                                <TextBlock x:Name="AvailableVencordText" Grid.Column="1" Text="Vérification…" FontSize="14" />
+                            </Grid>
+                            <Grid Margin="0,4">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Text="RandomFavorites" Style="{StaticResource SecondaryText}" />
+                                <TextBlock x:Name="PluginVersionText" Grid.Column="1" Text="—" FontSize="14" />
+                            </Grid>
+                            <Grid Margin="0,4">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Text="OpenAsar" Style="{StaticResource SecondaryText}" />
+                                <TextBlock x:Name="AdvancedOpenAsarText" Grid.Column="1" Text="Non installé" FontSize="14" />
+                            </Grid>
+                            <TextBlock Text="Dossier Discord" Style="{StaticResource SecondaryText}"
+                                       Margin="0,8,0,2" />
+                            <TextBlock x:Name="DiscordPathText" Text="—" FontSize="13"
+                                       TextWrapping="Wrap" Foreground="{StaticResource TextPrimary}" />
+                            <CheckBox x:Name="RestartDiscordCheck"
+                                      Content="Relancer Discord une fois terminé"
+                                      IsChecked="True" Margin="0,10,0,0"
+                                      AutomationProperties.HelpText="Décochez cette option pour laisser Discord fermé après l'opération." />
+                            <Button Content="Afficher le journal" Style="{StaticResource QuietButton}"
+                                    HorizontalAlignment="Left" Margin="-12,2,0,-4"
+                                    Click="ShowLogButton_OnClick" />
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+            </ScrollViewer>
+
+            <Border Grid.Row="2" Margin="20,0,20,16" Padding="8,4"
+                    Background="{StaticResource Surface}"
+                    BorderBrush="{StaticResource BorderSubtle}" BorderThickness="1"
+                    CornerRadius="9">
+                <Grid>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*" />
                         <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
                     </Grid.ColumnDefinitions>
-                    <StackPanel>
-                        <TextBlock x:Name="ProgressStageText" Text="Prêt" FontWeight="SemiBold" FontSize="9" />
-                        <TextBlock x:Name="ProgressDetailText" Text=""
-                                   Foreground="{StaticResource TextMuted}" FontSize="8" Margin="0,2,0,0"
-                                   TextTrimming="CharacterEllipsis" />
-                    </StackPanel>
-                    <Button x:Name="CancelOperationButton" Grid.Column="1" Content="Annuler"
-                            Visibility="Collapsed" Style="{StaticResource QuietButton}"
-                            Padding="10,4" MinWidth="0" Click="CancelOperationButton_OnClick" />
+                    <ToggleButton x:Name="AdvancedToggle" Style="{StaticResource FooterToggle}"
+                                  AutomationProperties.Name="Afficher les options avancées"
+                                  Checked="AdvancedToggle_OnChanged"
+                                  Unchecked="AdvancedToggle_OnChanged">
+                        <StackPanel Orientation="Horizontal">
+                            <Path x:Name="AdvancedChevron" Width="12" Height="8" Margin="0,0,12,0"
+                                  Stroke="{StaticResource TextSecondary}" StrokeThickness="1.8"
+                                  StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                                  Data="{StaticResource ChevronGeometry}"
+                                  RenderTransformOrigin="0.5,0.5" />
+                            <TextBlock Text="Options avancées" FontSize="14" />
+                        </StackPanel>
+                    </ToggleButton>
+                    <Button x:Name="RepairButton" Grid.Column="1" Content="Réparer"
+                            Style="{StaticResource QuietButton}"
+                            Foreground="{StaticResource Accent}"
+                            AutomationProperties.Name="Réparer l'installation"
+                            Click="RepairButton_OnClick" />
+                    <Button x:Name="MoreButton" Grid.Column="2" Style="{StaticResource IconButton}"
+                            AutomationProperties.Name="Plus d'options" ToolTip="Plus d'options"
+                            Click="MoreButton_OnClick">
+                        <Button.ContextMenu>
+                            <ContextMenu Placement="Top">
+                                <MenuItem x:Name="RepairMenuItem" Header="Réparer l'installation" Click="RepairMenuItem_OnClick" />
+                                <MenuItem Header="Afficher le journal" Click="ShowLogMenuItem_OnClick" />
+                                <MenuItem Header="Ouvrir le dossier des logs" Click="OpenLogsFolderMenuItem_OnClick" />
+                                <MenuItem x:Name="UninstallMenuItem" Header="Désinstaller" Click="UninstallMenuItem_OnClick" />
+                                <MenuItem Header="À propos" Click="AboutMenuItem_OnClick" />
+                            </ContextMenu>
+                        </Button.ContextMenu>
+                        <Path Width="4" Height="14" Stretch="Fill"
+                              Stroke="{StaticResource TextSecondary}" StrokeThickness="3"
+                              StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                              Data="{StaticResource MoreGeometry}" />
+                    </Button>
                 </Grid>
-                <ProgressBar x:Name="OperationProgress" Minimum="0" Maximum="100" Value="0" />
-            </StackPanel>
-        </Grid>
-
-        <Grid x:Name="UninstallOverlay" Grid.Row="1" Visibility="Collapsed" Background="#E6142321">
-            <Border Width="440" Background="{StaticResource CardBackground}" CornerRadius="8" Padding="20"
-                    HorizontalAlignment="Center" VerticalAlignment="Center"
-                    BorderBrush="{StaticResource Border}" BorderThickness="1">
-                <StackPanel>
-                    <TextBlock Text="Désinstaller" FontSize="17" FontWeight="SemiBold" Margin="0,0,0,12" />
-
-                    <RadioButton x:Name="RemovePluginOnlyRadio" Content="RandomFavorites uniquement"
-                                 IsChecked="True" Checked="UninstallChoice_OnChecked" />
-                    <CheckBox x:Name="RemovePluginSettingsCheck" Content="Supprimer aussi ses réglages"
-                              Margin="26,-1,0,5" FontSize="9" />
-
-                    <RadioButton x:Name="RemoveVencordKeepDataRadio" Content="Vencord, conserver les données"
-                                 Checked="UninstallChoice_OnChecked" />
-                    <RadioButton x:Name="RemoveEverythingRadio" Content="Vencord et toutes ses données"
-                                 Foreground="{StaticResource Danger}" Checked="UninstallChoice_OnChecked" />
-                    <CheckBox x:Name="DeleteDataAcknowledge" Visibility="Collapsed"
-                              Content="Je confirme la suppression des données locales"
-                              Margin="26,0,0,2" FontSize="9" Checked="DeleteDataAcknowledge_OnChanged"
-                              Unchecked="DeleteDataAcknowledge_OnChanged" />
-
-                    <CheckBox x:Name="RemoveOpenAsarCheck" Content="Retirer aussi OpenAsar"
-                              Visibility="Collapsed" Margin="0,7,0,0" FontSize="9"
-                              Checked="RemoveOpenAsarCheck_OnChanged"
-                              Unchecked="RemoveOpenAsarCheck_OnChanged" />
-
-                    <TextBlock x:Name="UninstallExplanationText"
-                               Text="Le plugin sera retiré. Vencord et ses réglages seront conservés."
-                               Foreground="{StaticResource TextMuted}" FontSize="9"
-                               TextWrapping="Wrap" Margin="0,10,0,14" />
-
-                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-                        <Button Content="Annuler" Style="{StaticResource QuietButton}" Margin="0,0,8,0"
-                                MinWidth="76" Padding="13,7" Click="CancelUninstallButton_OnClick" />
-                        <Button x:Name="ConfirmUninstallButton" Content="Désinstaller"
-                                Style="{StaticResource DangerButton}" MinWidth="96" Padding="13,7"
-                                Click="ConfirmUninstallButton_OnClick" />
-                    </StackPanel>
-                </StackPanel>
             </Border>
         </Grid>
-    </Grid>
+    </Border>
 </Window>

@@ -2,7 +2,6 @@ using System.Diagnostics;
 using System.IO.Compression;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using System.Text.RegularExpressions;
 using RandomFavorites.Setup.Core.Models;
 
 namespace RandomFavorites.Setup.Core.Services;
@@ -45,8 +44,75 @@ public sealed class InstallerService : IDisposable
 
     public InstallerLayout Layout => _layout;
 
+    public string CurrentLogFile => _logFile;
+
+    public void WriteDiagnostic(string message) => WriteLog(message);
+
     public bool IsOpenAsarInstalled(DiscordInstallation discord) =>
         OpenAsarManager.IsInstalled(discord);
+
+    public string? GetOpenAsarDigest(DiscordInstallation discord) =>
+        OpenAsarManager.GetInstalledDigest(discord);
+
+    public Task<BundleManifest> GetAvailableManifestAsync(
+        CancellationToken cancellationToken) =>
+        _releaseClient.GetLatestManifestAsync(cancellationToken);
+
+    public BundleManifest? ReadInstalledManifest(InstallState? state)
+    {
+        if (state is null) return null;
+
+        try
+        {
+            _layout.EnsureSafeDeleteTarget(state.ActiveVersionDirectory, _layout.Versions);
+            var path = Path.Combine(state.ActiveVersionDirectory, "manifest.json");
+            if (!File.Exists(path)) return null;
+            var manifest = JsonSerializer.Deserialize<BundleManifest>(
+                File.ReadAllText(path),
+                JsonOptions);
+            if (manifest is null) return null;
+            BundleManifestValidator.Validate(manifest);
+            return manifest;
+        }
+        catch (Exception error)
+        {
+            WriteLog($"Manifeste installé illisible : {error.Message}");
+            return null;
+        }
+    }
+
+    public bool IsInstallationHealthy(
+        DiscordInstallation discord,
+        InstallState? state,
+        BundleManifest? manifest)
+    {
+        if (state is null || manifest is null || state.Branch != discord.Branch)
+            return false;
+
+        try
+        {
+            _layout.EnsureSafeDeleteTarget(state.ActiveVersionDirectory, _layout.Versions);
+            var patcher = Path.Combine(state.ActiveVersionDirectory, "dist", "patcher.js");
+            var installer = Path.Combine(
+                state.ActiveVersionDirectory,
+                "tools",
+                "VencordInstallerCli.exe");
+            if (!File.Exists(patcher) || !File.Exists(installer)) return false;
+            ValidateDiscordPatch(discord, patcher);
+            return true;
+        }
+        catch (Exception error)
+        {
+            WriteLog($"Installation à réparer : {error.Message}");
+            return false;
+        }
+    }
+
+    public void StartDiscord(DiscordInstallation discord)
+    {
+        DiscordLauncher.Start(discord);
+        WriteLog($"{discord.DisplayName} relancé à la demande de l'utilisateur.");
+    }
 
     public IReadOnlyList<DiscordInstallation> DiscoverDiscordInstallations()
     {
@@ -156,9 +222,9 @@ public sealed class InstallerService : IDisposable
             progress?.Report(new InstallerProgress(
                 0.68,
                 "Installation dans Discord",
-                "Discord va être fermé et restera fermé après l'installation."));
+                "Discord va être fermé pendant l'installation."));
             await StopDiscordAsync(discord, cancellationToken);
-            WriteLog("Discord fermé. Aucun redémarrage automatique ne sera effectué.");
+            WriteLog("Discord fermé pour appliquer l'installation.");
 
             try
             {
@@ -177,7 +243,10 @@ public sealed class InstallerService : IDisposable
                         "Actualisation d'OpenAsar",
                         "Comparaison avec la version installée…",
                         true));
-                    openAsarChange = OpenAsarManager.InstallOrUpdate(discord, openAsarPath);
+                    openAsarChange = OpenAsarManager.ApplyPreference(
+                        discord,
+                        enabled: true,
+                        verifiedOpenAsar: openAsarPath);
                     if (!IsOpenAsarInstalled(discord))
                         throw new InvalidDataException("OpenAsar n'a pas pu être validé après son installation.");
                     WriteLog(openAsarChange switch
@@ -186,6 +255,20 @@ public sealed class InstallerService : IDisposable
                         OpenAsarChange.Updated => "OpenAsar mis à jour et validé avec succès.",
                         _ => "OpenAsar utilise déjà la dernière release officielle.",
                     });
+                }
+                else if (IsOpenAsarInstalled(discord))
+                {
+                    progress?.Report(new InstallerProgress(
+                        0.88,
+                        "Application des préférences",
+                        "Retrait d'OpenAsar…",
+                        true));
+                    openAsarChange = OpenAsarManager.ApplyPreference(
+                        discord,
+                        enabled: false);
+                    if (IsOpenAsarInstalled(discord))
+                        throw new InvalidDataException("OpenAsar n'a pas pu être retiré.");
+                    WriteLog("OpenAsar retiré selon la préférence choisie.");
                 }
             }
             catch (Exception installError)
@@ -251,15 +334,15 @@ public sealed class InstallerService : IDisposable
                 1,
                 "Installation terminée",
                 installOpenAsar
-                    ? $"RandomFavorites {manifest.Version} est prêt et OpenAsar est à jour. Relance Discord quand tu le souhaites."
-                    : $"RandomFavorites {manifest.Version} est prêt. Relance Discord quand tu le souhaites."));
+                    ? $"RandomFavorites {manifest.Version} est prêt et OpenAsar est à jour."
+                    : $"RandomFavorites {manifest.Version} est prêt."));
             WriteLog($"RandomFavorites {manifest.Version} installé avec succès.");
             return new InstallResult(
                 true,
                 "RandomFavorites est installé",
                 installOpenAsar
-                    ? "OpenAsar utilise la dernière release officielle. Discord est resté fermé : relance-le manuellement, puis active RandomFavorites dans Paramètres > Vencord > Plugins si nécessaire."
-                    : "Discord est resté fermé. Relance-le manuellement, puis active le plugin dans Paramètres > Vencord > Plugins si nécessaire.",
+                    ? "OpenAsar utilise la dernière release officielle. RandomFavorites peut maintenant être utilisé dans Discord."
+                    : "RandomFavorites peut maintenant être utilisé dans Discord.",
                 manifest.Version);
         }
         catch (OperationCanceledException)
@@ -310,9 +393,9 @@ public sealed class InstallerService : IDisposable
             progress?.Report(new InstallerProgress(
                 0.5,
                 "Préparation de la désinstallation",
-                "Discord va être fermé et restera fermé après la désinstallation."));
+                "Discord va être fermé pendant la désinstallation."));
             await StopDiscordAsync(discord, cancellationToken);
-            WriteLog("Discord fermé. Aucun redémarrage automatique ne sera effectué.");
+            WriteLog("Discord fermé pour appliquer la désinstallation.");
 
             if (mode == UninstallMode.RandomFavoritesOnly)
             {
@@ -354,18 +437,18 @@ public sealed class InstallerService : IDisposable
                     1,
                     "RandomFavorites est désinstallé",
                     openAsarRemoved
-                        ? "Vencord officiel est conservé et OpenAsar a été retiré. Relance Discord quand tu le souhaites."
+                        ? "Vencord officiel est conservé et OpenAsar a été retiré."
                         : openAsarKept
-                            ? "Vencord officiel et OpenAsar sont conservés. Relance Discord quand tu le souhaites."
-                            : "Vencord officiel est conservé. Relance Discord quand tu le souhaites."));
+                            ? "Vencord officiel et OpenAsar sont conservés."
+                            : "Vencord officiel est conservé."));
                 return new InstallResult(
                     true,
                     "RandomFavorites est désinstallé",
                     openAsarRemoved
-                        ? "Vencord officiel et tous les autres plugins/réglages sont conservés. OpenAsar a été retiré. Discord n'a pas été relancé."
+                        ? "Vencord officiel et tous les autres plugins/réglages sont conservés. OpenAsar a été retiré."
                         : openAsarKept
-                            ? "Vencord officiel, OpenAsar et tous les autres plugins/réglages sont conservés. Discord n'a pas été relancé."
-                            : "Vencord officiel et tous les autres plugins/réglages sont conservés. Discord n'a pas été relancé.");
+                            ? "Vencord officiel, OpenAsar et tous les autres plugins/réglages sont conservés."
+                            : "Vencord officiel et tous les autres plugins/réglages sont conservés.");
             }
 
             progress?.Report(new InstallerProgress(
@@ -428,7 +511,7 @@ public sealed class InstallerService : IDisposable
             ? "Les réglages locaux ont été conservés."
             : "Les réglages et thèmes locaux ont été supprimés.";
         var openAsar = openAsarKept ? " OpenAsar est conservé." : "";
-        return $"{data}{openAsar} Discord reste fermé.";
+        return $"{data}{openAsar}";
     }
 
     private static string BuildVencordUninstallMessage(UninstallMode mode, bool openAsarKept)
@@ -439,7 +522,7 @@ public sealed class InstallerService : IDisposable
         var openAsar = openAsarKept
             ? " OpenAsar reste installé."
             : " Discord utilise de nouveau son archive d'origine.";
-        return $"{result}{openAsar} Discord n'a pas été relancé.";
+        return $"{result}{openAsar}";
     }
 
     private async Task<BundleManifest> ExtractAndValidateBundleAsync(
@@ -490,18 +573,7 @@ public sealed class InstallerService : IDisposable
             await File.ReadAllTextAsync(manifestPath, cancellationToken),
             JsonOptions)
             ?? throw new InvalidDataException("Le manifeste du bundle est invalide.");
-        if (!Regex.IsMatch(manifest.Version, "^v[0-9]+\\.[0-9]+\\.[0-9]+$"))
-            throw new InvalidDataException("La version du manifeste est invalide.");
-        if (!Regex.IsMatch(manifest.VencordCommit, "^[0-9a-fA-F]{40}$")
-            || !Regex.IsMatch(manifest.PluginCommit, "^[0-9a-fA-F]{40}$"))
-        {
-            throw new InvalidDataException("Les identifiants de source du manifeste sont invalides.");
-        }
-        if (!Regex.IsMatch(manifest.OpenAsarDigest, "^sha256:[0-9a-fA-F]{64}$")
-            || manifest.OpenAsarPublishedAtUtc == default)
-        {
-            throw new InvalidDataException("La release OpenAsar du manifeste est invalide.");
-        }
+        BundleManifestValidator.Validate(manifest);
 
         foreach (var requiredFile in RequiredBundleFiles
                      .Concat(manifest.RequiredFiles ?? [])

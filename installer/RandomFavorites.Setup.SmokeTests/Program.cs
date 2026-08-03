@@ -4,12 +4,14 @@ using System.Text.Json.Nodes;
 using RandomFavorites.Setup.Core;
 using RandomFavorites.Setup.Core.Models;
 using RandomFavorites.Setup.Core.Services;
+using RandomFavorites.Setup.Presentation;
 
 var tests = new (string Name, Action Run)[]
 {
     ("checksum parser accepts GitHub checksum files", TestChecksumParser),
     ("checksum parser selects the requested release asset", TestNamedChecksumParser),
     ("downloaded bundle is moved only after its stream is released", TestDownloadReleasesFile),
+    ("latest release metadata is read without downloading the bundle", TestLatestManifest),
     ("safe deletion guard rejects broad and sibling paths", TestSafeDeleteGuard),
     ("installer state rejects payload paths outside its version directory", TestStatePathGuard),
     ("payload identity changes when the Vencord build changes", TestPayloadIdentity),
@@ -20,6 +22,10 @@ var tests = new (string Name, Action Run)[]
     ("OpenAsar update preserves the original Discord backup", TestOpenAsarUpdate),
     ("OpenAsar preserves Vencord's outer patch", TestOpenAsarPreservesVencordPatch),
     ("OpenAsar refuses to overwrite an existing backup", TestOpenAsarBackupCollision),
+    ("OpenAsar preference removes an installed copy safely", TestOpenAsarPreferenceRemoval),
+    ("installer UI resolves the main installation states", TestInstallerUiStates),
+    ("installer UI exposes real operation progress and success actions", TestInstallerUiProgress),
+    ("Discord launch uses the selected branch updater", TestDiscordLaunchInfo),
 };
 
 var failures = 0;
@@ -90,6 +96,19 @@ static void TestDownloadReleasesFile()
         if (Directory.Exists(temporary))
             Directory.Delete(temporary, recursive: true);
     }
+}
+
+static void TestLatestManifest()
+{
+    var expected = CreateManifest("v3.2.1", 'c', 'd');
+    using var client = new ReleaseClient(new ManifestReleaseHandler(expected));
+    var manifest = client.GetLatestManifestAsync(CancellationToken.None)
+        .GetAwaiter()
+        .GetResult();
+
+    Assert(manifest.Version == expected.Version);
+    Assert(manifest.PluginCommit == expected.PluginCommit);
+    Assert(manifest.VencordCommit == expected.VencordCommit);
 }
 
 static void TestSafeDeleteGuard()
@@ -345,6 +364,197 @@ static void TestOpenAsarBackupCollision()
     }
 }
 
+static void TestOpenAsarPreferenceRemoval()
+{
+    var temporary = CreateDiscordFixture(withVencordPatch: false);
+    var discord = CreateDiscordInstallation(temporary);
+    var resources = GetFixtureResources(temporary);
+    var openAsar = Path.Combine(temporary, "verified-openasar.asar");
+    File.WriteAllText(openAsar, "OpenAsar preferred payload");
+
+    try
+    {
+        Assert(OpenAsarManager.ApplyPreference(
+                discord,
+                enabled: true,
+                verifiedOpenAsar: openAsar)
+            == OpenAsarChange.Installed);
+        Assert(OpenAsarManager.GetInstalledDigest(discord)
+            == "sha256:" + Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(openAsar)))
+                .ToLowerInvariant());
+
+        Assert(OpenAsarManager.ApplyPreference(discord, enabled: false)
+            == OpenAsarChange.Removed);
+        Assert(!OpenAsarManager.IsInstalled(discord));
+        Assert(File.ReadAllText(Path.Combine(resources, "app.asar")) == "Discord original");
+    }
+    finally
+    {
+        Directory.Delete(temporary, recursive: true);
+    }
+}
+
+static void TestInstallerUiStates()
+{
+    var available = CreateManifest("v2.0.0", 'b', 'c');
+    var notInstalled = InstallerStateResolver.Resolve(new InstallerStateInput
+    {
+        HasDiscord = true,
+        AvailableManifest = available,
+        DesiredOpenAsar = false,
+    });
+    Assert(notInstalled.Status == InstallerScreenStatus.NotInstalled);
+    Assert(notInstalled.PrimaryAction == InstallerPrimaryAction.Install);
+    Assert(notInstalled.PrimaryActionText == "Installer");
+
+    var current = CreateInstalledUiInput(available);
+    var upToDate = InstallerStateResolver.Resolve(current);
+    Assert(upToDate.Status == InstallerScreenStatus.UpToDate);
+    Assert(upToDate.PrimaryAction == InstallerPrimaryAction.None);
+    Assert(upToDate.PrimaryActionText == "Tout est à jour");
+
+    var updateAvailable = InstallerStateResolver.Resolve(current with
+    {
+        AvailableManifest = CreateManifest("v2.1.0", 'd', 'e'),
+    });
+    Assert(updateAvailable.Status == InstallerScreenStatus.UpdateAvailable);
+    Assert(updateAvailable.PrimaryAction == InstallerPrimaryAction.Update);
+    Assert(updateAvailable.PrimaryActionText == "Mettre à jour");
+
+    var refreshedBuild = InstallerStateResolver.Resolve(current with
+    {
+        AvailableManifest = CreateManifest(available.Version, 'f', '0'),
+    });
+    Assert(refreshedBuild.Status == InstallerScreenStatus.UpdateAvailable);
+    Assert(refreshedBuild.Detail == "Une nouvelle build vérifiée est disponible");
+
+    var openAsarChange = InstallerStateResolver.Resolve(current with
+    {
+        DesiredOpenAsar = true,
+    });
+    Assert(openAsarChange.PrimaryAction == InstallerPrimaryAction.ApplyChanges);
+    Assert(openAsarChange.PrimaryActionText == "Appliquer les changements");
+
+    var openAsarUpdate = InstallerStateResolver.Resolve(current with
+    {
+        OpenAsarInstalled = true,
+        DesiredOpenAsar = true,
+        InstalledOpenAsarDigest = "sha256:" + new string('0', 64),
+    });
+    Assert(openAsarUpdate.Status == InstallerScreenStatus.UpdateAvailable);
+    Assert(openAsarUpdate.PrimaryAction == InstallerPrimaryAction.Update);
+
+    var damaged = InstallerStateResolver.Resolve(current with
+    {
+        InstallationHealthy = false,
+    });
+    Assert(damaged.Status == InstallerScreenStatus.RepairRequired);
+    Assert(damaged.PrimaryAction == InstallerPrimaryAction.Reinstall);
+    Assert(damaged.PrimaryActionText == "Réinstaller");
+
+    var missingManifest = InstallerStateResolver.Resolve(current with
+    {
+        InstalledManifest = null,
+        InstallationHealthy = false,
+    });
+    Assert(missingManifest.Status == InstallerScreenStatus.RepairRequired);
+
+    var offline = InstallerStateResolver.Resolve(current with
+    {
+        AvailableManifest = null,
+        InspectionWarning = "La vérification en ligne est momentanément indisponible.",
+    });
+    Assert(offline.Status == InstallerScreenStatus.Warning);
+    Assert(offline.Detail == "La vérification en ligne est momentanément indisponible.");
+}
+
+static void TestInstallerUiProgress()
+{
+    var busy = InstallerStateResolver.Resolve(new InstallerStateInput
+    {
+        HasDiscord = true,
+        IsBusy = true,
+        Progress = new InstallerProgress(
+            0.42,
+            "Téléchargement de Vencord",
+            "18,4 Mo sur 42,0 Mo",
+            IsIndeterminate: false),
+    });
+    Assert(busy.Status == InstallerScreenStatus.Busy);
+    Assert(busy.PrimaryActionText == "Installation en cours…");
+    Assert(busy.ShowProgress && !busy.IsProgressIndeterminate);
+    Assert(Math.Abs(busy.ProgressPercent - 42) < 0.001);
+    Assert(busy.ContextText == "Téléchargement de Vencord");
+
+    var success = InstallerStateResolver.Resolve(new InstallerStateInput
+    {
+        HasDiscord = true,
+        Result = new InstallResult(true, "Installation terminée", "Tout est prêt."),
+        CanOpenDiscord = true,
+    });
+    Assert(success.Status == InstallerScreenStatus.Success);
+    Assert(success.PrimaryAction == InstallerPrimaryAction.OpenDiscord);
+    Assert(success.PrimaryActionText == "Ouvrir Discord");
+    Assert(success.PrimaryActionEnabled);
+
+    var uninstalled = InstallerStateResolver.Resolve(new InstallerStateInput
+    {
+        HasDiscord = true,
+        Result = new InstallResult(true, "Désinstallation terminée", "RandomFavorites a été retiré."),
+    });
+    Assert(uninstalled.Status == InstallerScreenStatus.Success);
+    Assert(uninstalled.PrimaryAction == InstallerPrimaryAction.Install);
+    Assert(uninstalled.PrimaryActionText == "Installer");
+}
+
+static void TestDiscordLaunchInfo()
+{
+    var temporary = Path.Combine(Path.GetTempPath(), $"randomfavorites-launch-{Guid.NewGuid():N}");
+    Directory.CreateDirectory(temporary);
+    try
+    {
+        var updater = Path.Combine(temporary, "Update.exe");
+        File.WriteAllText(updater, "fixture");
+        var discord = CreateDiscordInstallation(temporary);
+        var startInfo = DiscordLauncher.CreateStartInfo(discord);
+
+        Assert(startInfo.FileName == updater);
+        Assert(startInfo.UseShellExecute);
+        Assert(startInfo.ArgumentList.SequenceEqual(["--processStart", "Discord.exe"]));
+    }
+    finally
+    {
+        Directory.Delete(temporary, recursive: true);
+    }
+}
+
+static InstallerStateInput CreateInstalledUiInput(BundleManifest manifest) => new()
+{
+    HasDiscord = true,
+    InstalledState = new InstallState
+    {
+        Version = manifest.Version,
+        Branch = DiscordBranch.Stable,
+        ActiveVersionDirectory = Path.Combine(Path.GetTempPath(), "randomfavorites-ui-state"),
+        InstalledAtUtc = DateTimeOffset.UtcNow,
+    },
+    InstalledManifest = manifest,
+    AvailableManifest = manifest,
+    InstallationHealthy = true,
+    OpenAsarInstalled = false,
+    DesiredOpenAsar = false,
+};
+
+static BundleManifest CreateManifest(string version, char pluginCommit, char vencordCommit) => new()
+{
+    Version = version,
+    PluginCommit = new string(pluginCommit, 40),
+    VencordCommit = new string(vencordCommit, 40),
+    OpenAsarDigest = "sha256:" + new string('a', 64),
+    OpenAsarPublishedAtUtc = DateTimeOffset.UtcNow,
+    BuiltAtUtc = DateTimeOffset.UtcNow,
+};
+
 static string CreateDiscordFixture(bool withVencordPatch)
 {
     var temporary = Path.Combine(Path.GetTempPath(), $"randomfavorites-openasar-{Guid.NewGuid():N}");
@@ -438,4 +648,15 @@ sealed class OpenAsarReleaseHandler(byte[] payload, bool corruptDigest = false) 
             Content = content,
         });
     }
+}
+
+sealed class ManifestReleaseHandler(BundleManifest manifest) : HttpMessageHandler
+{
+    protected override Task<HttpResponseMessage> SendAsync(
+        HttpRequestMessage request,
+        CancellationToken cancellationToken) => Task.FromResult(new HttpResponseMessage(
+        System.Net.HttpStatusCode.OK)
+        {
+            Content = new StringContent(JsonSerializer.Serialize(manifest)),
+        });
 }

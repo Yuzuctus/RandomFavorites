@@ -18,9 +18,9 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\RandomFavorites.Setup.Core\RandomFavorites.Setup.Core.csproj" />
+    <ProjectReference Include="..\RandomFavorites.Setup.Presentation\RandomFavorites.Setup.Presentation.csproj" />
   </ItemGroup>
   <ItemGroup>
     <Resource Include="Assets\RandomFavorites.ico" />
-    <Resource Include="Assets\Yuzuctus.png" />
   </ItemGroup>
 </Project>

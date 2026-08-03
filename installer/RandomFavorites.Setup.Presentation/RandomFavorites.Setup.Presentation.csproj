@@ -1,6 +1,5 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <OutputType>Exe</OutputType>
     <TargetFramework>net8.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
@@ -8,6 +7,5 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\RandomFavorites.Setup.Core\RandomFavorites.Setup.Core.csproj" />
-    <ProjectReference Include="..\RandomFavorites.Setup.Presentation\RandomFavorites.Setup.Presentation.csproj" />
   </ItemGroup>
 </Project>
