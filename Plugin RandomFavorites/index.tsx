@@ -53,7 +53,7 @@ import {
     UserStore,
     useState,
 } from "@webpack/common";
-import type { ReactNode } from "react";
+import type { ComponentProps, ReactNode, Ref } from "react";
 
 import { AdaptiveRandomPicker, type RepeatStrength } from "./adaptiveRandom";
 import { formatGifContent } from "./messageFormatting";
@@ -66,7 +66,8 @@ import {
 import { buildSelectionPlan } from "./selectionPlan";
 import {
     collectUsableSoundboardSounds,
-    shouldInsertRandomSoundboardSection,
+    insertRandomSoundboardCategory,
+    RANDOM_SOUNDBOARD_CATEGORY_KEY,
     soundboardCandidateKey,
     type SoundboardCategory,
 } from "./soundboardPool";
@@ -140,6 +141,21 @@ interface SoundboardSendPreparation {
     sound?: SoundboardSound;
 }
 
+type RandomSoundboardAction = "direct" | "preview";
+
+interface RandomSoundboardGridItem {
+    randomFavoritesAction: RandomSoundboardAction;
+    type: number;
+}
+
+interface RandomSoundboardRowDescriptor {
+    item?: RandomSoundboardGridItem;
+}
+
+type RandomSoundboardGridItemProps = Omit<ComponentProps<"button">, "ref"> & {
+    ref?: Ref<HTMLLIElement>;
+};
+
 type CanUseSoundboardSound = (
     user: unknown,
     sound: SoundboardSound,
@@ -182,7 +198,10 @@ const getSoundboardSoundUrl = findByCodeLazy(
 ) as GetSoundboardSoundUrl;
 const activeChannels = new Set<string>();
 const concreteKinds: ConcreteFavoriteKind[] = ["gif", "emoji", "sticker"];
-const randomSoundboardSectionHeight = 64;
+const randomSoundboardGridItems: RandomSoundboardGridItem[] = [
+    { type: -1, randomFavoritesAction: "direct" },
+    { type: -1, randomFavoritesAction: "preview" },
+];
 
 const candidatePicker = new AdaptiveRandomPicker<FavoriteCandidate>(candidate => candidate.key);
 const kindPicker = new AdaptiveRandomPicker<ConcreteFavoriteKind>(kind => kind);
@@ -209,8 +228,8 @@ const settings = definePluginSettings({
         },
         get description() {
             return localize(
-                "Show the random selection privately and wait for confirmation before sending or playing it.",
-                "Affiche le tirage en privé et attend une confirmation avant de l'envoyer ou de le jouer.",
+                "Show random GIFs, emojis, and stickers privately before sending them.",
+                "Affiche les GIFs, emotes et stickers aléatoires en privé avant de les envoyer.",
             );
         },
         default: false,
@@ -614,6 +633,58 @@ function soundboardInsertionGuildId() {
     return getConnectedVoiceChannel()?.guild_id
         ?? SelectedGuildStore.getGuildId()
         ?? undefined;
+}
+
+type SoundboardGuild = NonNullable<
+    NonNullable<SoundboardCategory["categoryInfo"]>["guild"]
+>;
+
+function createRandomSoundboardGuild(
+    baseGuild: SoundboardGuild,
+    currentGuildId: string,
+): SoundboardGuild {
+    const virtualGuild = Object.create(baseGuild) as SoundboardGuild;
+
+    Object.defineProperties(virtualGuild, {
+        id: { value: currentGuildId, enumerable: true },
+        name: { value: "FavoriteRandom", enumerable: true },
+        acronym: { value: "FR", enumerable: true },
+        icon: { value: null, enumerable: true },
+        iconHash: { value: null, enumerable: true },
+        getIconURL: { value: () => null },
+    });
+
+    return virtualGuild;
+}
+
+function addRandomSoundboardCategory(
+    categories: readonly SoundboardCategory[],
+): readonly SoundboardCategory[] {
+    const currentGuildId = soundboardInsertionGuildId();
+    if (!currentGuildId) return categories;
+
+    const guildCategory = categories.find(
+        category => category.categoryInfo?.guild?.id === currentGuildId,
+    ) ?? categories.find(category => category.categoryInfo?.guild != null);
+    const categoryType = guildCategory?.categoryInfo?.type;
+    const baseGuild = GuildStore.getGuild(currentGuildId)
+        ?? guildCategory?.categoryInfo?.guild;
+
+    if (categoryType == null || !baseGuild) return categories;
+
+    return insertRandomSoundboardCategory(
+        categories,
+        {
+            key: RANDOM_SOUNDBOARD_CATEGORY_KEY,
+            categoryInfo: {
+                type: categoryType,
+                guild: createRandomSoundboardGuild(baseGuild, currentGuildId),
+                isNitroLocked: false,
+            },
+            items: randomSoundboardGridItems,
+        },
+        currentGuildId,
+    );
 }
 
 function kindLabel(kind: FavoriteKind) {
@@ -1559,7 +1630,7 @@ function RandomSoundboardPreviewModal({
     );
 }
 
-function runRandomSoundboard() {
+function runRandomSoundboard(action: RandomSoundboardAction) {
     const draw = drawRandomSoundboard();
     if (draw.error || !draw.sound) {
         showToast(draw.error ?? localize(
@@ -1570,7 +1641,7 @@ function runRandomSoundboard() {
     }
 
     const initialSound = draw.sound;
-    if (!settings.store.previewBeforeSend) {
+    if (action === "direct") {
         playSoundboardSelection(initialSound);
         return;
     }
@@ -1583,34 +1654,136 @@ function runRandomSoundboard() {
     ));
 }
 
-function RandomSoundboardSection() {
-    const { previewBeforeSend } = settings.use(["previewBeforeSend"]);
+function RandomSoundboardActionIcon({
+    action,
+}: {
+    action: RandomSoundboardAction;
+}) {
+    if (action === "direct") {
+        return (
+            <svg
+                aria-hidden="true"
+                viewBox="0 0 24 24"
+                width="18"
+                height="18"
+                fill="currentColor"
+            >
+                <path d="M8 5.4v13.2c0 .8.9 1.3 1.6.8l9-6.6a1 1 0 0 0 0-1.6l-9-6.6A1 1 0 0 0 8 5.4Z" />
+            </svg>
+        );
+    }
 
     return (
-        <div className="vc-rf-soundboard-section">
-            <button
-                type="button"
-                className="vc-rf-soundboard-section-button"
-                onClick={runRandomSoundboard}
-            >
-                <span className="vc-rf-soundboard-section-icon">
-                    <RandomFavoritesIcon height={18} width={18} />
-                </span>
-                <span className="vc-rf-soundboard-section-copy">
-                    <strong>{localize("Random soundboard", "Soundboard aléatoire")}</strong>
-                    <span>{previewBeforeSend
-                        ? localize(
-                            "Listen privately before playing",
-                            "Écouter en privé avant de jouer",
-                        )
-                        : localize(
-                            "Play immediately in voice",
-                            "Jouer immédiatement dans le vocal",
-                        )}
-                    </span>
-                </span>
-            </button>
-        </div>
+        <svg
+            aria-hidden="true"
+            viewBox="0 0 24 24"
+            width="18"
+            height="18"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.8"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+        >
+            <path d="M12 3 5.5 6v5.2c0 4.2 2.5 7.5 6.5 9.8 4-2.3 6.5-5.6 6.5-9.8V6L12 3Z" />
+            <path d="M8.5 12s1.3-2 3.5-2 3.5 2 3.5 2-1.3 2-3.5 2-3.5-2-3.5-2Z" />
+            <circle cx="12" cy="12" r=".8" fill="currentColor" stroke="none" />
+        </svg>
+    );
+}
+
+function RandomSoundboardActionsRow({
+    getItemProps,
+    onItemMouseEnter,
+    rowProps,
+}: {
+    getItemProps?: (columnIndex: number) => RandomSoundboardGridItemProps;
+    onItemMouseEnter?: (columnIndex: number) => void;
+    rowProps: ComponentProps<"ul">;
+}) {
+    const { className, ...nativeRowProps } = rowProps;
+    const actions: Array<{
+        action: RandomSoundboardAction;
+        label: string;
+        tooltip: string;
+    }> = [
+        {
+            action: "direct",
+            label: localize("Play directly", "Lecture directe"),
+            tooltip: localize(
+                "Draw a random sound and play it immediately in voice",
+                "Tirer un son aléatoire et le jouer immédiatement dans le vocal",
+            ),
+        },
+        {
+            action: "preview",
+            label: localize("Safe preview", "Aperçu sécurisé"),
+            tooltip: localize(
+                "Draw a random sound and listen privately before confirming",
+                "Tirer un son aléatoire et l'écouter en privé avant de confirmer",
+            ),
+        },
+    ];
+
+    return (
+        <ul
+            {...nativeRowProps}
+            className={["vc-rf-soundboard-grid-row", className]
+                .filter(Boolean)
+                .join(" ")}
+        >
+            {actions.map(({ action, label, tooltip }, index) => {
+                const itemProps = getItemProps?.(index) ?? {};
+                const {
+                    className: nativeItemClassName,
+                    onMouseEnter,
+                    ref,
+                    ...nativeButtonProps
+                } = itemProps;
+
+                return (
+                    <li
+                        className="vc-rf-soundboard-grid-item"
+                        key={action}
+                        ref={ref}
+                    >
+                        <button
+                            {...nativeButtonProps}
+                            type="button"
+                            className={[
+                                "vc-rf-soundboard-grid-button",
+                                nativeItemClassName,
+                            ].filter(Boolean).join(" ")}
+                            aria-label={tooltip}
+                            title={tooltip}
+                            onClick={event => {
+                                event.stopPropagation();
+                                runRandomSoundboard(action);
+                            }}
+                            onMouseEnter={event => {
+                                onMouseEnter?.(event);
+                                onItemMouseEnter?.(index);
+                            }}
+                        >
+                            <span className="vc-rf-soundboard-grid-icon">
+                                <RandomSoundboardActionIcon action={action} />
+                            </span>
+                            <span className="vc-rf-soundboard-grid-label">
+                                {label}
+                            </span>
+                        </button>
+                    </li>
+                );
+            })}
+        </ul>
+    );
+}
+
+function isRandomSoundboardRow(
+    descriptors: readonly RandomSoundboardRowDescriptor[],
+) {
+    return descriptors.some(descriptor =>
+        descriptor.item?.randomFavoritesAction != null,
     );
 }
 
@@ -1959,12 +2132,12 @@ export default definePlugin({
         find: "soundboard_guild_",
         replacement: [
             {
-                match: /categories:(\i),collapsedCategories:(\i),([^}]*?renderRow:\i,)renderSectionHeader:(\i)(?=,renderSectionFooter:\i,renderSection:\i,renderCategoryList:\i,renderHeaderAccessories:\i,rowHeight:48)/,
-                replace: "categories:$1,collapsedCategories:$2,$3renderSectionHeader:(category,index)=>$self.renderRandomSoundboardSectionHeader($4(category,index),$1,index)",
+                match: /(\i)=(\i)\.useMemo\(\(\)=>(\i)\.filter\((\i)=>\4\.items\.length>0\),\[\3\]\)/,
+                replace: "$1=$2.useMemo(()=>$self.addRandomSoundboardCategory($3.filter($4=>$4.items.length>0)),[$3])",
             },
             {
-                match: /categories:(\i),collapsedCategories:(\i),([^}]*?renderHeaderAccessories:\i,rowHeight:48,)sectionHeaderHeight:(\i),sectionFooterHeight:/,
-                replace: "categories:$1,collapsedCategories:$2,$3sectionHeaderHeight:index=>$self.adjustRandomSoundboardHeaderHeight($4(index),$1,index),sectionFooterHeight:",
+                match: /renderRow:(\i)(?=,renderSectionHeader:\i,renderSectionFooter:\i,renderSection:\i,renderCategoryList:\i,renderHeaderAccessories:\i,rowHeight:48)/,
+                replace: "renderRow:(...args)=>$self.renderRandomSoundboardRow(args[0],args[1],args[3],args[4],()=>$1(...args))",
             },
         ],
     }],
@@ -1974,33 +2147,23 @@ export default definePlugin({
         render: RandomFavoritesButton,
     },
 
-    renderRandomSoundboardSectionHeader(
-        nativeHeader: ReactNode,
-        categories: readonly SoundboardCategory[],
-        index: number,
-    ) {
-        return shouldInsertRandomSoundboardSection(
-            categories,
-            index,
-            soundboardInsertionGuildId(),
-        )
-            ? <><RandomSoundboardSection />{nativeHeader}</>
-            : nativeHeader;
-    },
+    addRandomSoundboardCategory,
 
-    adjustRandomSoundboardHeaderHeight(
-        nativeHeight: number,
-        categories: readonly SoundboardCategory[],
-        index: number,
+    renderRandomSoundboardRow(
+        descriptors: readonly RandomSoundboardRowDescriptor[],
+        rowProps: ComponentProps<"ul">,
+        getItemProps: ((columnIndex: number) => RandomSoundboardGridItemProps) | undefined,
+        onItemMouseEnter: ((columnIndex: number) => void) | undefined,
+        renderNativeRow: () => ReactNode,
     ) {
-        return nativeHeight + (
-            shouldInsertRandomSoundboardSection(
-                categories,
-                index,
-                soundboardInsertionGuildId(),
-            )
-                ? randomSoundboardSectionHeight
-                : 0
+        if (!isRandomSoundboardRow(descriptors)) return renderNativeRow();
+
+        return (
+            <RandomSoundboardActionsRow
+                getItemProps={getItemProps}
+                onItemMouseEnter={onItemMouseEnter}
+                rowProps={rowProps}
+            />
         );
     },
 

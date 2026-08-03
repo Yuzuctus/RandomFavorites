@@ -10,11 +10,19 @@ export interface SoundboardCandidate {
 }
 
 export interface SoundboardCategory {
+    key?: string | number;
     categoryInfo?: {
-        guild?: { id: string; };
+        guild?: {
+            id: string;
+            name?: string;
+        };
+        isNitroLocked?: boolean;
         type?: number;
     };
+    items?: readonly unknown[];
 }
+
+export const RANDOM_SOUNDBOARD_CATEGORY_KEY = "vc-rf-random-soundboard";
 
 export function soundboardCandidateKey(candidate: SoundboardCandidate) {
     return `${candidate.guildId}:${candidate.soundId}`;
@@ -42,24 +50,40 @@ export function collectUsableSoundboardSounds<T extends SoundboardCandidate>(
 }
 
 /**
- * Anchors the custom row immediately after Favorites. Discord can omit that
- * section when it is empty, so the current guild becomes the fallback anchor.
+ * Adds the virtual RandomFavorites server immediately after Favorites. During
+ * search Discord replaces the normal sections with a search-only category; in
+ * that case there is deliberately no insertion anchor and the list is kept as-is.
  */
-export function shouldInsertRandomSoundboardSection(
-    categories: readonly SoundboardCategory[],
-    index: number,
+export function insertRandomSoundboardCategory<T extends SoundboardCategory>(
+    categories: readonly T[],
+    randomCategory: T,
     currentGuildId?: string,
     favoritesCategoryType = 0,
-) {
-    const hasFavoritesSection = categories.some(
+): readonly T[] {
+    if (categories.some(category => category.key === RANDOM_SOUNDBOARD_CATEGORY_KEY))
+        return categories;
+
+    const favoritesIndex = categories.findIndex(
         category => category.categoryInfo?.type === favoritesCategoryType,
     );
+    const currentGuildIndex = currentGuildId == null
+        ? -1
+        : categories.findIndex(
+            category => category.categoryInfo?.guild?.id === currentGuildId,
+        );
+    const insertionIndex = favoritesIndex >= 0
+        ? favoritesIndex + 1
+        : currentGuildIndex;
 
-    if (hasFavoritesSection) {
-        return index > 0
-            && categories[index - 1]?.categoryInfo?.type === favoritesCategoryType;
-    }
+    if (insertionIndex < 0) return categories;
 
-    return currentGuildId != null
-        && categories[index]?.categoryInfo?.guild?.id === currentGuildId;
+    return [
+        ...categories.slice(0, insertionIndex),
+        randomCategory,
+        ...categories.slice(insertionIndex),
+    ];
+}
+
+export function isRandomSoundboardCategory(category?: SoundboardCategory) {
+    return category?.key === RANDOM_SOUNDBOARD_CATEGORY_KEY;
 }
