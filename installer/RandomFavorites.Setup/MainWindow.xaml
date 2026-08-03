@@ -88,7 +88,7 @@
             <Border Grid.Row="0" VerticalAlignment="Bottom" Height="1"
                     Background="{StaticResource BorderSubtle}" />
 
-            <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto"
+            <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Hidden"
                           HorizontalScrollBarVisibility="Disabled"
                           Focusable="False">
                 <StackPanel Width="460" Margin="0,22,0,20">

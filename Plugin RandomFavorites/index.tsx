@@ -1954,7 +1954,9 @@ export default definePlugin({
     commands,
 
     patches: [{
-        find: "SOUNDBOARD_FAVORITES_SECTION",
+        // This accessibility id belongs to the soundboard picker itself. The
+        // analytics constant lives in another module and cannot be patched here.
+        find: "soundboard_guild_",
         replacement: [
             {
                 match: /categories:(\i),collapsedCategories:(\i),([^}]*?renderRow:\i,)renderSectionHeader:(\i)(?=,renderSectionFooter:\i,renderSection:\i,renderCategoryList:\i,renderHeaderAccessories:\i,rowHeight:48)/,
