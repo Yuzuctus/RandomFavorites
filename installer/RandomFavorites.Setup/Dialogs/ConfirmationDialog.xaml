@@ -1,0 +1,42 @@
+<Window x:Class="RandomFavorites.Setup.Dialogs.ConfirmationDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Confirmation"
+        Width="440" Height="260"
+        WindowStartupLocation="CenterOwner"
+        WindowStyle="None" ResizeMode="NoResize"
+        ShowInTaskbar="False"
+        Background="{StaticResource WindowBackground}"
+        AutomationProperties.Name="Confirmation"
+        PreviewKeyDown="Dialog_OnPreviewKeyDown">
+    <WindowChrome.WindowChrome>
+        <WindowChrome CaptionHeight="54" ResizeBorderThickness="0" CornerRadius="10" GlassFrameThickness="0" />
+    </WindowChrome.WindowChrome>
+    <Border Background="{StaticResource WindowBackground}" BorderBrush="{StaticResource BorderStrong}"
+            BorderThickness="1" CornerRadius="10" Padding="24,0,16,20">
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="54" />
+                <RowDefinition Height="*" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+            <TextBlock x:Name="TitleText" Text="Confirmer" FontSize="18" FontWeight="SemiBold"
+                       VerticalAlignment="Center" />
+            <Button Grid.Column="1" HorizontalAlignment="Right" Style="{StaticResource TitleBarButton}"
+                    AutomationProperties.Name="Fermer" Click="CancelButton_OnClick">
+                <Path Width="12" Height="12" Stroke="{StaticResource TextSecondary}" StrokeThickness="1.7"
+                      StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                      Data="{StaticResource CloseGeometry}" />
+            </Button>
+            <TextBlock x:Name="MessageText" Grid.Row="1" Style="{StaticResource BodyText}"
+                       Foreground="{StaticResource TextSecondary}" TextWrapping="Wrap"
+                       VerticalAlignment="Center" Margin="0,8,8,14" />
+            <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right">
+                <Button x:Name="CancelButton" Content="Annuler" Style="{StaticResource QuietButton}"
+                        Margin="0,0,8,0" Click="CancelButton_OnClick" />
+                <Button x:Name="ConfirmButton" Content="Confirmer" Style="{StaticResource SecondaryButton}"
+                        MinWidth="112" IsDefault="True" Click="ConfirmButton_OnClick" />
+            </StackPanel>
+        </Grid>
+    </Border>
+</Window>

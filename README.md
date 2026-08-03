@@ -1,6 +1,6 @@
 # RandomFavorites
 
-Un plugin Vencord qui envoie un **GIF**, une **emote** ou un **sticker** aléatoire depuis Discord.
+Un plugin Vencord qui envoie un **GIF**, une **emote**, un **sticker** ou un **son de soundboard** aléatoire depuis Discord.
 
 ## Installer sur Windows
 
@@ -10,7 +10,7 @@ Un plugin Vencord qui envoie un **GIF**, une **emote** ou un **sticker** aléato
 4. Clique sur **Installer**.
 5. Dans Discord, va dans `Paramètres > Vencord > Plugins` et active **RandomFavorites**.
 
-Git, Node.js et pnpm ne sont pas nécessaires. L'installateur prépare les fichiers pendant que Discord reste ouvert, puis le ferme seulement au moment de l'installation. **Discord n'est jamais relancé automatiquement** : tu le rouvres toi-même quand l'opération est terminée.
+Git, Node.js et pnpm ne sont pas nécessaires. L'installateur prépare les fichiers pendant que Discord reste ouvert, puis le ferme seulement au moment de l'installation. L'option avancée **Relancer Discord une fois terminé** est activée par défaut et peut être décochée avant l'opération.
 
 > L'application n'est pas encore signée. Si Windows SmartScreen apparaît, vérifie que le fichier vient bien de la page [Releases officielle](https://github.com/Yuzuctus/RandomFavorites/releases), puis choisis **Informations complémentaires > Exécuter quand même**.
 
@@ -19,6 +19,7 @@ Git, Node.js et pnpm ne sont pas nécessaires. L'installateur prépare les fichi
 - **Clic gauche sur le dé** : effectue le tirage configuré.
 - **Clic droit sur le dé** : choisit GIF, emote, sticker et le mode de tirage.
 - **Aperçu sécurisé** : affiche le résultat dans une fenêtre privée avant tout envoi. Rien n'est envoyé tant que tu ne confirmes pas.
+- **Soundboard aléatoire** : dans le sélecteur de soundboard, la ligne placée avant le serveur actuel choisit un son utilisable. En mode direct, il est joué immédiatement ; avec **Aperçu sécurisé**, l'écoute est locale et le bouton vocal reste verrouillé jusqu'à ce que tu aies entendu l'aperçu.
 
 Les réglages sont en français si Discord est en français, sinon en anglais. Ils permettent notamment de choisir :
 
@@ -38,7 +39,7 @@ Rouvre le même EXE :
 - **Réparer** réapplique les fichiers après une mise à jour de Discord et revérifie OpenAsar ;
 - **Désinstaller** peut retirer seulement RandomFavorites, Vencord en conservant ses données, ou tout supprimer.
 
-OpenAsar reste entièrement facultatif. Lorsqu'il est actif, chaque opération **Installer / Mettre à jour** ou **Réparer** récupère la release nightly officielle, vérifie l'empreinte SHA-256 publiée par GitHub et compare son contenu à la copie installée. Une mise à jour remplace uniquement OpenAsar : l'archive Discord d'origine reste intacte pour permettre sa restauration. Le menu **Désinstaller** permet de choisir explicitement de conserver ou de retirer OpenAsar.
+OpenAsar reste entièrement facultatif. Lorsqu'il est actif, chaque opération **Installer / Mettre à jour** ou **Réparer** récupère la release nightly officielle, vérifie l'empreinte SHA-256 publiée par GitHub et compare son contenu à la copie installée. Une mise à jour remplace uniquement OpenAsar : l'archive Discord d'origine reste intacte pour permettre sa restauration. Désactiver son interrupteur puis appliquer les changements le retire proprement. Le menu **Désinstaller** permet aussi de choisir explicitement de le conserver ou de le retirer.
 
 GitHub compare chaque heure le commit Vencord officiel et le digest SHA-256 de la nightly OpenAsar aux valeurs du manifeste publié. Si l'un des deux change, le bundle et l'EXE de la dernière release sont reconstruits, les tests sont relancés, puis tous les assets sont remplacés seulement en cas de succès. L'EXE récupère donc le **dernier build Vencord vérifié compatible avec RandomFavorites** et connaît la release OpenAsar testée, même si le numéro de version du plugin n'a pas changé. Si une mise à jour casse la compilation ou les tests, GitHub conserve la dernière publication fonctionnelle.
 

@@ -9,6 +9,7 @@ public enum OpenAsarChange
     None,
     Installed,
     Updated,
+    Removed,
 }
 
 public static class OpenAsarManager
@@ -53,6 +54,49 @@ public static class OpenAsarManager
 
         Install(activeAsar, verifiedOpenAsar);
         return OpenAsarChange.Installed;
+    }
+
+    public static OpenAsarChange ApplyPreference(
+        DiscordInstallation discord,
+        bool enabled,
+        string? verifiedOpenAsar = null)
+    {
+        if (enabled)
+        {
+            if (string.IsNullOrWhiteSpace(verifiedOpenAsar))
+            {
+                throw new ArgumentException(
+                    "Le fichier OpenAsar vérifié est requis pour l'activer.",
+                    nameof(verifiedOpenAsar));
+            }
+
+            return InstallOrUpdate(discord, verifiedOpenAsar);
+        }
+
+        if (!IsInstalled(discord)) return OpenAsarChange.None;
+
+        Uninstall(discord);
+        return OpenAsarChange.Removed;
+    }
+
+    public static string? GetInstalledDigest(DiscordInstallation discord)
+    {
+        try
+        {
+            var activeAsar = FindActiveAsar(discord);
+            if (!ContainsSignature(activeAsar)) return null;
+
+            using var stream = File.OpenRead(activeAsar);
+            return "sha256:" + Convert.ToHexString(SHA256.HashData(stream)).ToLowerInvariant();
+        }
+        catch (FileNotFoundException)
+        {
+            return null;
+        }
+        catch (DirectoryNotFoundException)
+        {
+            return null;
+        }
     }
 
     private static void Install(string activeAsar, string verifiedOpenAsar)

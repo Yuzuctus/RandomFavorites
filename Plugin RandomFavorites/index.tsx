@@ -17,12 +17,21 @@ import { definePluginSettings } from "@api/Settings";
 import { sendMessage } from "@utils/discord";
 import { Logger } from "@utils/Logger";
 import definePlugin, { OptionType } from "@utils/types";
-import { Channel, Command, Emoji, RenderModalProps, Sticker } from "@vencord/discord-types";
-import { findByPropsLazy } from "@webpack";
 import {
+    Channel,
+    Command,
+    Emoji,
+    RenderModalProps,
+    SoundboardSound,
+    Sticker,
+} from "@vencord/discord-types";
+import { findByCodeLazy, findByPropsLazy } from "@webpack";
+import {
+    ChannelStore,
     ContextMenuApi,
     EmojiStore,
     FluxDispatcher,
+    GuildStore,
     LocaleStore,
     Menu,
     MessageActions,
@@ -32,14 +41,19 @@ import {
     PendingReplyStore,
     PermissionsBits,
     PermissionStore,
+    SelectedChannelStore,
+    SelectedGuildStore,
     showToast,
+    SoundboardStore,
     StickersStore,
     Toasts,
     useEffect,
     useRef,
     UserSettingsActionCreators,
+    UserStore,
     useState,
 } from "@webpack/common";
+import type { ReactNode } from "react";
 
 import { AdaptiveRandomPicker, type RepeatStrength } from "./adaptiveRandom";
 import { formatGifContent } from "./messageFormatting";
@@ -50,6 +64,12 @@ import {
     resolveGifContentUrl,
 } from "./previewMedia";
 import { buildSelectionPlan } from "./selectionPlan";
+import {
+    collectUsableSoundboardSounds,
+    shouldInsertRandomSoundboardSection,
+    soundboardCandidateKey,
+    type SoundboardCategory,
+} from "./soundboardPool";
 import { pickUniform } from "./uniformRandom";
 
 type FavoriteKind = "all" | "gif" | "emoji" | "sticker";
@@ -109,6 +129,33 @@ interface FavoriteDrawResult {
     errors: string[];
 }
 
+interface SoundboardDrawResult {
+    error?: string;
+    sound?: SoundboardSound;
+}
+
+interface SoundboardSendPreparation {
+    channel?: Channel;
+    error?: string;
+    sound?: SoundboardSound;
+}
+
+type CanUseSoundboardSound = (
+    user: unknown,
+    sound: SoundboardSound,
+    channel: Channel,
+    requireAvailable?: boolean,
+) => boolean;
+
+type SendSoundboardSound = (
+    sound: SoundboardSound,
+    channelId: string,
+    analyticsLocations: unknown[],
+    sequenceNumber?: number,
+) => void;
+
+type GetSoundboardSoundUrl = (soundId: string) => string;
+
 const logger = new Logger("RandomFavorites");
 const LottiePlayer = findByPropsLazy("loadAnimation") as {
     loadAnimation(options: {
@@ -119,11 +166,27 @@ const LottiePlayer = findByPropsLazy("loadAnimation") as {
         renderer: "svg";
     }): { destroy(): void; };
 };
+const canUseSoundboardSound = findByCodeLazy(
+    ".canUseSoundboardEverywhere(",
+    ".guildId===",
+    ".available",
+) as CanUseSoundboardSound;
+const sendSoundboardSound = findByCodeLazy(
+    "SOUNDBOARD_TRACK_USAGE",
+    "source_guild_id",
+    "SEND_SOUNDBOARD_SOUND",
+) as SendSoundboardSound;
+const getSoundboardSoundUrl = findByCodeLazy(
+    "CDN_HOST",
+    ".SOUNDBOARD_SOUND(",
+) as GetSoundboardSoundUrl;
 const activeChannels = new Set<string>();
 const concreteKinds: ConcreteFavoriteKind[] = ["gif", "emoji", "sticker"];
+const randomSoundboardSectionHeight = 64;
 
 const candidatePicker = new AdaptiveRandomPicker<FavoriteCandidate>(candidate => candidate.key);
 const kindPicker = new AdaptiveRandomPicker<ConcreteFavoriteKind>(kind => kind);
+const soundboardPicker = new AdaptiveRandomPicker<SoundboardSound>(soundboardCandidateKey);
 
 const settings = definePluginSettings({
     showChatBarButton: {
@@ -146,8 +209,8 @@ const settings = definePluginSettings({
         },
         get description() {
             return localize(
-                "Show the random selection privately and wait for confirmation before sending it.",
-                "Affiche le tirage en privé et attend une confirmation avant de l'envoyer.",
+                "Show the random selection privately and wait for confirmation before sending or playing it.",
+                "Affiche le tirage en privé et attend une confirmation avant de l'envoyer ou de le jouer.",
             );
         },
         default: false,
@@ -399,6 +462,158 @@ function isFrench() {
 
 function localize(english: string, french: string) {
     return isFrench() ? french : english;
+}
+
+function getConnectedVoiceChannel(): Channel | undefined {
+    const channelId = SelectedChannelStore.getVoiceChannelId();
+    return channelId ? ChannelStore.getChannel(channelId) : undefined;
+}
+
+function soundboardChannelError(channel?: Channel): string | undefined {
+    if (!channel) {
+        return localize(
+            "Join a voice channel before using the random soundboard.",
+            "Rejoins un salon vocal avant d'utiliser le soundboard aléatoire.",
+        );
+    }
+
+    if (channel.isPrivate()) return;
+
+    if (!channel.isGuildVoiceOrThread()) {
+        return localize(
+            "The current voice channel does not support the soundboard.",
+            "Le salon vocal actuel ne prend pas en charge le soundboard.",
+        );
+    }
+
+    if (
+        !PermissionStore.can(PermissionsBits.SPEAK, channel)
+        || !PermissionStore.can(PermissionsBits.USE_SOUNDBOARD, channel)
+    ) {
+        return localize(
+            "You do not have permission to use the soundboard in this voice channel.",
+            "Tu n'as pas la permission d'utiliser le soundboard dans ce salon vocal.",
+        );
+    }
+}
+
+function collectSoundboardCandidates(channel: Channel) {
+    const user = UserStore.getCurrentUser();
+    if (!user) return [];
+
+    return collectUsableSoundboardSounds(
+        SoundboardStore.getSounds().values(),
+        sound => sound.available !== false
+            && canUseSoundboardSound(user, sound, channel, true),
+    );
+}
+
+function drawRandomSoundboard(): SoundboardDrawResult {
+    const channel = getConnectedVoiceChannel();
+    const channelError = soundboardChannelError(channel);
+    if (channelError || !channel)
+        return { error: channelError };
+
+    let sounds: SoundboardSound[];
+    try {
+        sounds = collectSoundboardCandidates(channel);
+    } catch (error) {
+        logger.error("Failed to resolve Discord's soundboard sounds", error);
+        return {
+            error: localize(
+                "Discord's soundboard data could not be read. Close and reopen the soundboard, then try again.",
+                "Les données du soundboard Discord sont illisibles. Ferme et rouvre le soundboard, puis réessaie.",
+            ),
+        };
+    }
+
+    if (sounds.length === 0) {
+        return {
+            error: SoundboardStore.isFetchingAnySounds()
+                ? localize(
+                    "Discord is still loading the soundboard. Try again in a moment.",
+                    "Discord charge encore le soundboard. Réessaie dans un instant.",
+                )
+                : localize(
+                    "No soundboard sound is currently usable in this voice channel.",
+                    "Aucun son du soundboard n'est actuellement utilisable dans ce salon vocal.",
+                ),
+        };
+    }
+
+    const sound = settings.store.avoidRepeats
+        ? soundboardPicker.take(sounds, selectedRepeatStrength())
+        : pickUniform(sounds);
+
+    return sound
+        ? { sound }
+        : {
+            error: localize(
+                "No random sound could be selected.",
+                "Aucun son aléatoire n'a pu être sélectionné.",
+            ),
+        };
+}
+
+function prepareSoundboardSend(sound: SoundboardSound): SoundboardSendPreparation {
+    const channel = getConnectedVoiceChannel();
+    const channelError = soundboardChannelError(channel);
+    if (channelError || !channel)
+        return { error: channelError };
+
+    try {
+        const currentSound = SoundboardStore.getSound(sound.guildId, sound.soundId);
+        const user = UserStore.getCurrentUser();
+        const isStillUsable = currentSound != null
+            && user != null
+            && canUseSoundboardSound(user, currentSound, channel, true);
+
+        return isStillUsable
+            ? { channel, sound: currentSound }
+            : {
+                error: localize(
+                    "This sound is no longer usable. Draw another one before confirming.",
+                    "Ce son n'est plus utilisable. Relance le tirage avant de confirmer.",
+                ),
+            };
+    } catch (error) {
+        logger.error("Failed to revalidate a soundboard sound", error);
+        return {
+            error: localize(
+                "Discord could not validate this soundboard sound.",
+                "Discord n'a pas pu valider ce son du soundboard.",
+            ),
+        };
+    }
+}
+
+function playSoundboardSelection(sound: SoundboardSound) {
+    const prepared = prepareSoundboardSend(sound);
+    if (prepared.error || !prepared.channel || !prepared.sound) {
+        showToast(prepared.error ?? localize(
+            "Discord could not validate this soundboard sound.",
+            "Discord n'a pas pu valider ce son du soundboard.",
+        ), Toasts.Type.FAILURE);
+        return false;
+    }
+
+    try {
+        sendSoundboardSound(prepared.sound, prepared.channel.id, []);
+        return true;
+    } catch (error) {
+        logger.error("Discord refused to play a random soundboard sound", error);
+        showToast(localize(
+            "Discord could not play this sound in the voice channel.",
+            "Discord n'a pas pu jouer ce son dans le salon vocal.",
+        ), Toasts.Type.FAILURE);
+        return false;
+    }
+}
+
+function soundboardInsertionGuildId() {
+    return getConnectedVoiceChannel()?.guild_id
+        ?? SelectedGuildStore.getGuildId()
+        ?? undefined;
 }
 
 function kindLabel(kind: FavoriteKind) {
@@ -1175,6 +1390,230 @@ function openFavoritePreview(channel: Channel, drawAgain: () => FavoriteDrawResu
     ));
 }
 
+function pauseSoundboardPreview(audio?: HTMLAudioElement | null) {
+    if (!audio) return;
+
+    audio.pause();
+    audio.currentTime = 0;
+}
+
+function soundboardSourceName(sound: SoundboardSound) {
+    if (sound.guildId === "0")
+        return localize("Discord sounds", "Sons Discord");
+
+    return GuildStore.getGuild(sound.guildId)?.name
+        ?? localize("Unknown server", "Serveur inconnu");
+}
+
+function RandomSoundboardPreviewModal({
+    initialSound,
+    modalProps,
+}: {
+    initialSound: SoundboardSound;
+    modalProps: RenderModalProps;
+}) {
+    const [sound, setSound] = useState(initialSound);
+    const [isSending, setIsSending] = useState(false);
+    const [hasPreviewStarted, setHasPreviewStarted] = useState(false);
+    const [previewUnavailable, setPreviewUnavailable] = useState(false);
+    const audioRef = useRef<HTMLAudioElement>(null);
+    let soundUrl: string | undefined;
+
+    try {
+        soundUrl = getSoundboardSoundUrl(sound.soundId);
+    } catch (error) {
+        logger.error("Failed to resolve a soundboard preview URL", error);
+    }
+
+    useEffect(() => {
+        setHasPreviewStarted(false);
+        setPreviewUnavailable(false);
+
+        const audio = audioRef.current;
+        if (!audio || !soundUrl) return;
+
+        audio.volume = Math.max(0, Math.min(sound.volume ?? 1, 1));
+        void audio.play().catch(() => {
+            // Autoplay can be denied. The native audio controls remain usable.
+        });
+
+        return () => pauseSoundboardPreview(audio);
+    }, [sound.guildId, sound.soundId, sound.volume, soundUrl]);
+
+    function reroll() {
+        const draw = drawRandomSoundboard();
+        if (draw.error) {
+            showToast(draw.error, Toasts.Type.FAILURE);
+            return;
+        }
+
+        if (draw.sound) {
+            pauseSoundboardPreview(audioRef.current);
+            setSound(draw.sound);
+        }
+    }
+
+    function confirmPlay() {
+        if (!hasPreviewStarted || previewUnavailable || !soundUrl) {
+            showToast(localize(
+                "Listen to the local preview before confirming.",
+                "Écoute l'aperçu local avant de confirmer.",
+            ), Toasts.Type.FAILURE);
+            return;
+        }
+
+        setIsSending(true);
+        pauseSoundboardPreview(audioRef.current);
+
+        if (playSoundboardSelection(sound)) {
+            modalProps.onClose();
+        } else {
+            setIsSending(false);
+        }
+    }
+
+    return (
+        <Modal
+            {...modalProps}
+            title={localize(
+                "Safe random soundboard preview",
+                "Aperçu soundboard aléatoire sécurisé",
+            )}
+            subtitle={localize(
+                "This preview is local. Nothing plays in voice until you confirm.",
+                "Cet aperçu est local. Rien ne passe dans le vocal avant ta confirmation.",
+            )}
+            actions={[
+                {
+                    text: localize("Cancel", "Annuler"),
+                    variant: "secondary",
+                    disabled: isSending,
+                    onClick: modalProps.onClose,
+                },
+                {
+                    text: localize("Draw again", "Relancer"),
+                    variant: "secondary",
+                    disabled: isSending,
+                    onClick: reroll,
+                },
+                {
+                    text: isSending
+                        ? localize("Playing…", "Lecture…")
+                        : hasPreviewStarted
+                            ? localize("Play in voice", "Jouer dans le vocal")
+                            : localize("Listen first", "Écoute d'abord"),
+                    variant: "primary",
+                    disabled: isSending
+                        || !hasPreviewStarted
+                        || previewUnavailable
+                        || !soundUrl,
+                    onClick: confirmPlay,
+                },
+            ]}
+        >
+            <div className="vc-rf-soundboard-preview">
+                <div className="vc-rf-soundboard-preview-heading">
+                    <span className="vc-rf-soundboard-preview-emoji" aria-hidden="true">
+                        {sound.emojiName || "♪"}
+                    </span>
+                    <div>
+                        <strong>{sound.name}</strong>
+                        <span>{soundboardSourceName(sound)}</span>
+                    </div>
+                </div>
+                {soundUrl ? (
+                    <audio
+                        key={soundboardCandidateKey(sound)}
+                        ref={audioRef}
+                        className="vc-rf-soundboard-audio"
+                        src={soundUrl}
+                        controls
+                        preload="auto"
+                        aria-label={localize(
+                            `Private preview of ${sound.name}`,
+                            `Aperçu privé de ${sound.name}`,
+                        )}
+                        onPlay={() => setHasPreviewStarted(true)}
+                        onError={() => {
+                            setHasPreviewStarted(false);
+                            setPreviewUnavailable(true);
+                        }}
+                    />
+                ) : null}
+                {(previewUnavailable || !soundUrl) && (
+                    <p className="vc-rf-soundboard-preview-error">
+                        {localize(
+                            "The local audio preview is unavailable. Draw again before confirming.",
+                            "L'aperçu audio local est indisponible. Relance le tirage avant de confirmer.",
+                        )}
+                    </p>
+                )}
+            </div>
+            <p className="vc-rf-preview-hint">
+                {localize(
+                    "Draw again only changes the private preview. The blue button is the only action that plays a sound in voice.",
+                    "Relancer change uniquement l'aperçu privé. Seul le bouton bleu joue le son dans le vocal.",
+                )}
+            </p>
+        </Modal>
+    );
+}
+
+function runRandomSoundboard() {
+    const draw = drawRandomSoundboard();
+    if (draw.error || !draw.sound) {
+        showToast(draw.error ?? localize(
+            "No random sound could be selected.",
+            "Aucun son aléatoire n'a pu être sélectionné.",
+        ), Toasts.Type.FAILURE);
+        return;
+    }
+
+    const initialSound = draw.sound;
+    if (!settings.store.previewBeforeSend) {
+        playSoundboardSelection(initialSound);
+        return;
+    }
+
+    openModal(modalProps => (
+        <RandomSoundboardPreviewModal
+            initialSound={initialSound}
+            modalProps={modalProps}
+        />
+    ));
+}
+
+function RandomSoundboardSection() {
+    const { previewBeforeSend } = settings.use(["previewBeforeSend"]);
+
+    return (
+        <div className="vc-rf-soundboard-section">
+            <button
+                type="button"
+                className="vc-rf-soundboard-section-button"
+                onClick={runRandomSoundboard}
+            >
+                <span className="vc-rf-soundboard-section-icon">
+                    <RandomFavoritesIcon height={18} width={18} />
+                </span>
+                <span className="vc-rf-soundboard-section-copy">
+                    <strong>{localize("Random soundboard", "Soundboard aléatoire")}</strong>
+                    <span>{previewBeforeSend
+                        ? localize(
+                            "Listen privately before playing",
+                            "Écouter en privé avant de jouer",
+                        )
+                        : localize(
+                            "Play immediately in voice",
+                            "Jouer immédiatement dans le vocal",
+                        )}
+                    </span>
+                </span>
+            </button>
+        </div>
+    );
+}
+
 async function runFromCommand(kind: FavoriteKind, channel: Channel) {
     if (settings.store.previewBeforeSend) {
         openFavoritePreview(channel, () => drawRandomFavorite(kind, channel));
@@ -1508,20 +1947,65 @@ const commands: Command[] = [
 
 export default definePlugin({
     name: "RandomFavorites",
-    description: "Send a random favorite GIF, emoji, sticker, or a balanced mix.",
+    description: "Send a random favorite GIF, emoji, sticker, soundboard sound, or a balanced mix.",
     authors: [{ name: "Yuzuctus", id: 0n }],
     tags: ["Chat", "Commands", "Emotes", "Fun", "Media"],
     settings,
     commands,
+
+    patches: [{
+        find: "SOUNDBOARD_FAVORITES_SECTION",
+        replacement: [
+            {
+                match: /categories:(\i),collapsedCategories:(\i),([^}]*?renderRow:\i,)renderSectionHeader:(\i)(?=,renderSectionFooter:\i,renderSection:\i,renderCategoryList:\i,renderHeaderAccessories:\i,rowHeight:48)/,
+                replace: "categories:$1,collapsedCategories:$2,$3renderSectionHeader:(category,index)=>$self.renderRandomSoundboardSectionHeader($4(category,index),$1,index)",
+            },
+            {
+                match: /categories:(\i),collapsedCategories:(\i),([^}]*?renderHeaderAccessories:\i,rowHeight:48,)sectionHeaderHeight:(\i),sectionFooterHeight:/,
+                replace: "categories:$1,collapsedCategories:$2,$3sectionHeaderHeight:index=>$self.adjustRandomSoundboardHeaderHeight($4(index),$1,index),sectionFooterHeight:",
+            },
+        ],
+    }],
 
     chatBarButton: {
         icon: RandomFavoritesIcon,
         render: RandomFavoritesButton,
     },
 
+    renderRandomSoundboardSectionHeader(
+        nativeHeader: ReactNode,
+        categories: readonly SoundboardCategory[],
+        index: number,
+    ) {
+        return shouldInsertRandomSoundboardSection(
+            categories,
+            index,
+            soundboardInsertionGuildId(),
+        )
+            ? <><RandomSoundboardSection />{nativeHeader}</>
+            : nativeHeader;
+    },
+
+    adjustRandomSoundboardHeaderHeight(
+        nativeHeight: number,
+        categories: readonly SoundboardCategory[],
+        index: number,
+    ) {
+        return nativeHeight + (
+            shouldInsertRandomSoundboardSection(
+                categories,
+                index,
+                soundboardInsertionGuildId(),
+            )
+                ? randomSoundboardSectionHeight
+                : 0
+        );
+    },
+
     stop() {
         activeChannels.clear();
         candidatePicker.clear();
         kindPicker.clear();
+        soundboardPicker.clear();
     },
 });

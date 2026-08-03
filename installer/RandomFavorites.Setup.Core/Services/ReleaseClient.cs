@@ -13,6 +13,8 @@ public sealed class ReleaseClient : IDisposable
         "https://github.com/Yuzuctus/RandomFavorites/releases/latest/download/RandomFavoritesBundle.zip";
     public const string ChecksumUrl =
         "https://github.com/Yuzuctus/RandomFavorites/releases/latest/download/RandomFavoritesBundle.zip.sha256";
+    public const string ManifestUrl =
+        "https://github.com/Yuzuctus/RandomFavorites/releases/latest/download/RandomFavoritesBundle.manifest.json";
     public const string OfficialInstallerUrl =
         "https://github.com/Vencord/Installer/releases/latest/download/VencordInstallerCli.exe";
     public const string OfficialInstallerChecksumUrl =
@@ -60,6 +62,21 @@ public sealed class ReleaseClient : IDisposable
         }
 
         return bundlePath;
+    }
+
+    public async Task<BundleManifest> GetLatestManifestAsync(
+        CancellationToken cancellationToken)
+    {
+        using var response = await _httpClient.GetAsync(ManifestUrl, cancellationToken);
+        response.EnsureSuccessStatusCode();
+        await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
+        var manifest = await JsonSerializer.DeserializeAsync<BundleManifest>(
+            stream,
+            new JsonSerializerOptions { PropertyNameCaseInsensitive = true },
+            cancellationToken)
+            ?? throw new InvalidDataException("Le manifeste de la dernière release est illisible.");
+        BundleManifestValidator.Validate(manifest);
+        return manifest;
     }
 
     public async Task<string> DownloadOfficialInstallerAsync(
