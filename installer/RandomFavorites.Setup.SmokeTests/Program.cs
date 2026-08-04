@@ -12,6 +12,8 @@ var tests = new (string Name, Action Run)[]
     ("checksum parser selects the requested release asset", TestNamedChecksumParser),
     ("downloaded bundle is moved only after its stream is released", TestDownloadReleasesFile),
     ("latest release metadata is read without downloading the bundle", TestLatestManifest),
+    ("beta release URLs target the beta tag", TestBetaReleaseUrls),
+    ("beta manifest versions are accepted", TestBetaManifestVersion),
     ("safe deletion guard rejects broad and sibling paths", TestSafeDeleteGuard),
     ("installer state rejects payload paths outside its version directory", TestStatePathGuard),
     ("payload identity changes when the Vencord build changes", TestPayloadIdentity),
@@ -109,6 +111,27 @@ static void TestLatestManifest()
     Assert(manifest.Version == expected.Version);
     Assert(manifest.PluginCommit == expected.PluginCommit);
     Assert(manifest.VencordCommit == expected.VencordCommit);
+}
+
+static void TestBetaReleaseUrls()
+{
+    var expected = CreateManifest("v1.9.1-beta.3", 'e', 'f');
+    var handler = new ManifestReleaseHandler(expected);
+    using var client = new ReleaseClient(handler, "v1.9.1-beta.3");
+    var manifest = client.GetLatestManifestAsync(CancellationToken.None)
+        .GetAwaiter()
+        .GetResult();
+
+    Assert(manifest.Version == expected.Version);
+    Assert(handler.LastRequestUri?.AbsolutePath ==
+        "/Yuzuctus/RandomFavorites/releases/download/v1.9.1-beta.3/RandomFavoritesBundle.manifest.json");
+}
+
+static void TestBetaManifestVersion()
+{
+    BundleManifestValidator.Validate(CreateManifest("v1.9.1-beta.3", 'e', 'f'));
+    AssertThrows<InvalidDataException>(() =>
+        BundleManifestValidator.Validate(CreateManifest("v1.9.1-alpha.1", 'e', 'f')));
 }
 
 static void TestSafeDeleteGuard()
@@ -652,11 +675,16 @@ sealed class OpenAsarReleaseHandler(byte[] payload, bool corruptDigest = false) 
 
 sealed class ManifestReleaseHandler(BundleManifest manifest) : HttpMessageHandler
 {
+    public Uri? LastRequestUri { get; private set; }
+
     protected override Task<HttpResponseMessage> SendAsync(
         HttpRequestMessage request,
-        CancellationToken cancellationToken) => Task.FromResult(new HttpResponseMessage(
-        System.Net.HttpStatusCode.OK)
+        CancellationToken cancellationToken)
+    {
+        LastRequestUri = request.RequestUri;
+        return Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.OK)
         {
             Content = new StringContent(JsonSerializer.Serialize(manifest)),
         });
+    }
 }

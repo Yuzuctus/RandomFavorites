@@ -368,7 +368,7 @@ public sealed class InstallerService : IDisposable
         IProgress<InstallerProgress>? progress,
         CancellationToken cancellationToken)
     {
-        WriteLog("Réparation demandée : le bundle stable sera vérifié puis réappliqué.");
+        WriteLog("Réparation demandée : le bundle de la release sélectionnée sera vérifié puis réappliqué.");
         return InstallOrUpdateAsync(discord, installOpenAsar, progress, cancellationToken);
     }
 

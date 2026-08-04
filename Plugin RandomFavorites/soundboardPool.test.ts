@@ -19,6 +19,9 @@ import {
     RANDOM_SOUNDBOARD_GUILD_ICON_SVG,
     RANDOM_SOUNDBOARD_VIRTUAL_GUILD_FALLBACK_ID,
     revokeRandomSoundboardGuildIconUrl,
+    SOUNDBOARD_DEFAULTS_CATEGORY_TYPE,
+    SOUNDBOARD_GUILD_CATEGORY_TYPE,
+    SOUNDBOARD_SEARCH_CATEGORY_TYPE,
     soundboardCandidateKey,
 } from "./soundboardPool";
 
@@ -146,16 +149,33 @@ describe("soundboardPool", () => {
     });
 
     it("does not inject the virtual server into search-only results", () => {
-        const categories = [{ key: "search", categoryInfo: { type: 9 } }];
+        const categories = [{ key: "search", categoryInfo: { type: SOUNDBOARD_SEARCH_CATEGORY_TYPE } }];
         const randomCategory = {
             key: RANDOM_SOUNDBOARD_CATEGORY_KEY,
-            categoryInfo: { type: 1, guild: { id: "current" } },
+            categoryInfo: { type: SOUNDBOARD_GUILD_CATEGORY_TYPE, guild: { id: "current" } },
         };
 
         assert.equal(
             insertRandomSoundboardCategory(categories, randomCategory, "current"),
             categories,
         );
+    });
+
+    it("inserts the virtual server after Discord defaults in a private call", () => {
+        const categories = [
+            { key: "defaults", categoryInfo: { type: SOUNDBOARD_DEFAULTS_CATEGORY_TYPE } },
+        ];
+        const randomCategory = {
+            key: RANDOM_SOUNDBOARD_CATEGORY_KEY,
+            categoryInfo: { type: SOUNDBOARD_GUILD_CATEGORY_TYPE, guild: { id: "virtual" } },
+        };
+
+        const result = insertRandomSoundboardCategory(categories, randomCategory);
+
+        assert.deepEqual(result.map(category => category.key), [
+            "defaults",
+            RANDOM_SOUNDBOARD_CATEGORY_KEY,
+        ]);
     });
 
     it("serves the virtual server icon as a stable blob URL", () => {

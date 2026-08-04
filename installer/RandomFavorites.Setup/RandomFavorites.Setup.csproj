@@ -15,7 +15,11 @@
     <AssemblyName>RandomFavoritesSetup</AssemblyName>
     <RootNamespace>RandomFavorites.Setup</RootNamespace>
     <ApplicationIcon>Assets\RandomFavorites.ico</ApplicationIcon>
+    <RandomFavoritesReleaseTag Condition="'$(RandomFavoritesReleaseTag)' == ''">latest</RandomFavoritesReleaseTag>
   </PropertyGroup>
+  <ItemGroup>
+    <AssemblyMetadata Include="RandomFavoritesReleaseTag" Value="$(RandomFavoritesReleaseTag)" />
+  </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\RandomFavorites.Setup.Core\RandomFavorites.Setup.Core.csproj" />
     <ProjectReference Include="..\RandomFavorites.Setup.Presentation\RandomFavorites.Setup.Presentation.csproj" />
