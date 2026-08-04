@@ -1728,7 +1728,7 @@ function RandomSoundboardActionsRow({
     onItemMouseEnter?: (columnIndex: number) => void;
     rowProps: ComponentProps<"ul">;
 }) {
-    const { className, ...nativeRowProps } = rowProps;
+    const { className: _nativeRowClassName, ...nativeRowProps } = rowProps;
     const actions: Array<{
         action: RandomSoundboardAction;
         label: string;
@@ -1755,14 +1755,12 @@ function RandomSoundboardActionsRow({
     return (
         <ul
             {...nativeRowProps}
-            className={["vc-rf-soundboard-grid-row", className]
-                .filter(Boolean)
-                .join(" ")}
+            className="vc-rf-soundboard-grid-row"
         >
             {actions.map(({ action, label, tooltip }, index) => {
                 const itemProps = getItemProps?.(index) ?? {};
                 const {
-                    className: nativeItemClassName,
+                    className: _nativeItemClassName,
                     onMouseEnter,
                     ref,
                     ...nativeButtonProps
@@ -1770,10 +1768,7 @@ function RandomSoundboardActionsRow({
 
                 return (
                     <li
-                        className={[
-                            "vc-rf-soundboard-grid-item",
-                            nativeItemClassName,
-                        ].filter(Boolean).join(" ")}
+                        className="vc-rf-soundboard-grid-item"
                         key={action}
                         ref={ref}
                     >
