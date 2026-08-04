@@ -34,6 +34,7 @@ import {
     EmojiStore,
     FluxDispatcher,
     GuildStore,
+    IconUtils,
     LocaleStore,
     Menu,
     MessageActions,
@@ -826,6 +827,31 @@ type SoundboardGuild = NonNullable<
 
 /** Stable for the whole session; never reuses a real guild id. */
 let virtualSoundboardGuildId: string | undefined;
+let originalGuildIconUrl: typeof IconUtils.getGuildIconURL | undefined;
+let randomGuildIconUrlOverride: typeof IconUtils.getGuildIconURL | undefined;
+
+function installRandomSoundboardGuildIconOverride() {
+    if (originalGuildIconUrl) return;
+
+    originalGuildIconUrl = IconUtils.getGuildIconURL;
+    randomGuildIconUrlOverride = data => {
+        if (virtualSoundboardGuildId && data.id === virtualSoundboardGuildId)
+            return getRandomSoundboardGuildIconUrl();
+
+        return originalGuildIconUrl!(data);
+    };
+    IconUtils.getGuildIconURL = randomGuildIconUrlOverride;
+}
+
+function restoreRandomSoundboardGuildIconOverride() {
+    if (!originalGuildIconUrl) return;
+
+    if (IconUtils.getGuildIconURL === randomGuildIconUrlOverride)
+        IconUtils.getGuildIconURL = originalGuildIconUrl;
+
+    originalGuildIconUrl = undefined;
+    randomGuildIconUrlOverride = undefined;
+}
 
 function resolveVirtualSoundboardGuildId() {
     if (
@@ -2204,7 +2230,7 @@ function RandomSoundboardActionsRow({
     onItemMouseEnter?: (columnIndex: number) => void;
     rowProps: ComponentProps<"ul">;
 }) {
-    const { className: _nativeRowClassName, ...nativeRowProps } = rowProps;
+    const { className: nativeRowClassName, ...nativeRowProps } = rowProps;
     const actions: Array<{
         action: RandomSoundboardAction;
         label: string;
@@ -2231,12 +2257,12 @@ function RandomSoundboardActionsRow({
     return (
         <ul
             {...nativeRowProps}
-            className="vc-rf-soundboard-grid-row"
+            className={[nativeRowClassName, "vc-rf-soundboard-grid-row"].filter(Boolean).join(" ")}
         >
             {actions.map(({ action, label, tooltip }, index) => {
                 const itemProps = getItemProps?.(index) ?? {};
                 const {
-                    className: _nativeItemClassName,
+                    className: nativeButtonClassName,
                     onMouseEnter,
                     ref,
                     ...nativeButtonProps
@@ -2251,7 +2277,7 @@ function RandomSoundboardActionsRow({
                         <button
                             {...nativeButtonProps}
                             type="button"
-                            className="vc-rf-soundboard-grid-button"
+                            className={[nativeButtonClassName, "vc-rf-soundboard-grid-button"].filter(Boolean).join(" ")}
                             aria-label={tooltip}
                             title={tooltip}
                             onClick={event => {
@@ -2700,6 +2726,10 @@ export default definePlugin({
 
     addRandomSoundboardCategory,
 
+    start() {
+        installRandomSoundboardGuildIconOverride();
+    },
+
     renderRandomSoundboardRow(
         descriptors: readonly RandomSoundboardRowDescriptor[],
         rowProps: ComponentProps<"ul">,
@@ -2719,6 +2749,7 @@ export default definePlugin({
     },
 
     stop() {
+        restoreRandomSoundboardGuildIconOverride();
         activeChannels.clear();
         candidatePicker.clear();
         kindPicker.clear();
