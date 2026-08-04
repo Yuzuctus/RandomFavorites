@@ -164,6 +164,7 @@ jobs:
           dotnet publish random-favorites/installer/RandomFavorites.Setup/RandomFavorites.Setup.csproj `
             -c Release -r win-x64 --self-contained true `
             -p:Version=$version `
+            -p:RandomFavoritesReleaseTag="${{ steps.current.outputs.tag }}" `
             -o release-assets/setup
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           Copy-Item -LiteralPath release-assets/setup/RandomFavoritesSetup.exe `

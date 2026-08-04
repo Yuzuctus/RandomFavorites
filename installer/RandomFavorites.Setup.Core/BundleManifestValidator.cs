@@ -9,7 +9,7 @@ public static class BundleManifestValidator
     {
         ArgumentNullException.ThrowIfNull(manifest);
 
-        if (!Regex.IsMatch(manifest.Version, "^v[0-9]+\\.[0-9]+\\.[0-9]+$"))
+        if (!Regex.IsMatch(manifest.Version, "^v[0-9]+\\.[0-9]+\\.[0-9]+(?:-beta\\.[0-9]+)?$"))
             throw new InvalidDataException("La version du manifeste est invalide.");
         if (!Regex.IsMatch(manifest.VencordCommit, "^[0-9a-fA-F]{40}$")
             || !Regex.IsMatch(manifest.PluginCommit, "^[0-9a-fA-F]{40}$"))

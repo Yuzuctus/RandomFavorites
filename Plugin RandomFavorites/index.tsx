@@ -90,6 +90,7 @@ import {
     RANDOM_SOUNDBOARD_CATEGORY_KEY,
     RANDOM_SOUNDBOARD_GUILD_ICON_HASH,
     revokeRandomSoundboardGuildIconUrl,
+    SOUNDBOARD_GUILD_CATEGORY_TYPE,
     soundboardCandidateKey,
     type SoundboardCategory,
 } from "./soundboardPool";
@@ -813,9 +814,10 @@ function playSoundboardSelection(sound: SoundboardSound) {
 }
 
 function soundboardInsertionGuildId() {
-    return getConnectedVoiceChannel()?.guild_id
-        ?? SelectedGuildStore.getGuildId()
-        ?? undefined;
+    const voiceChannel = getConnectedVoiceChannel();
+    return voiceChannel
+        ? voiceChannel.guild_id
+        : SelectedGuildStore.getGuildId() ?? undefined;
 }
 
 type SoundboardGuild = NonNullable<
@@ -841,10 +843,10 @@ function resolveVirtualSoundboardGuildId() {
 }
 
 function createRandomSoundboardGuild(
-    baseGuild: SoundboardGuild,
+    baseGuild: SoundboardGuild | undefined,
     virtualGuildId: string,
 ): SoundboardGuild {
-    const virtualGuild = Object.create(baseGuild) as SoundboardGuild;
+    const virtualGuild = Object.create(baseGuild ?? null) as SoundboardGuild;
     const iconUrl = getRandomSoundboardGuildIconUrl();
 
     Object.defineProperties(virtualGuild, {
@@ -863,18 +865,17 @@ function createRandomSoundboardGuild(
 function addRandomSoundboardCategory(
     categories: readonly SoundboardCategory[],
 ): readonly SoundboardCategory[] {
-    // Anchor only — never reused as the virtual guild's own id.
+    // A private call has no guild id; use a native guild only as a prototype.
     const currentGuildId = soundboardInsertionGuildId();
-    if (!currentGuildId) return categories;
 
-    const guildCategory = categories.find(
-        category => category.categoryInfo?.guild?.id === currentGuildId,
-    ) ?? categories.find(category => category.categoryInfo?.guild != null);
-    const categoryType = guildCategory?.categoryInfo?.type;
-    const baseGuild = GuildStore.getGuild(currentGuildId)
+    const guildCategory = (currentGuildId
+        ? categories.find(category => category.categoryInfo?.guild?.id === currentGuildId)
+        : undefined)
+        ?? categories.find(category => category.categoryInfo?.guild != null);
+    const categoryType = guildCategory?.categoryInfo?.type ?? SOUNDBOARD_GUILD_CATEGORY_TYPE;
+    const baseGuild = (currentGuildId ? GuildStore.getGuild(currentGuildId) : undefined)
         ?? guildCategory?.categoryInfo?.guild;
-
-    if (categoryType == null || !baseGuild) return categories;
+    const fallbackGuild = baseGuild ?? GuildStore.getGuildsArray()[0];
 
     const virtualGuildId = resolveVirtualSoundboardGuildId();
 
@@ -884,7 +885,7 @@ function addRandomSoundboardCategory(
             key: RANDOM_SOUNDBOARD_CATEGORY_KEY,
             categoryInfo: {
                 type: categoryType,
-                guild: createRandomSoundboardGuild(baseGuild, virtualGuildId),
+                guild: createRandomSoundboardGuild(fallbackGuild, virtualGuildId),
                 isNitroLocked: false,
             },
             items: randomSoundboardGridItems,

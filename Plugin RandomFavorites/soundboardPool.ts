@@ -29,6 +29,10 @@ export interface SoundboardCategory {
 }
 
 export const RANDOM_SOUNDBOARD_CATEGORY_KEY = "vc-rf-random-soundboard";
+export const SOUNDBOARD_FAVORITES_CATEGORY_TYPE = 0;
+export const SOUNDBOARD_GUILD_CATEGORY_TYPE = 1;
+export const SOUNDBOARD_DEFAULTS_CATEGORY_TYPE = 2;
+export const SOUNDBOARD_SEARCH_CATEGORY_TYPE = 3;
 
 /**
  * Fake CDN hash exposed on the virtual guild. It never reaches the network
@@ -164,7 +168,7 @@ export function insertRandomSoundboardCategory<T extends SoundboardCategory>(
     categories: readonly T[],
     randomCategory: T,
     currentGuildId?: string,
-    favoritesCategoryType = 0,
+    favoritesCategoryType = SOUNDBOARD_FAVORITES_CATEGORY_TYPE,
 ): readonly T[] {
     if (categories.some(category => category.key === RANDOM_SOUNDBOARD_CATEGORY_KEY))
         return categories;
@@ -177,9 +181,16 @@ export function insertRandomSoundboardCategory<T extends SoundboardCategory>(
         : categories.findIndex(
             category => category.categoryInfo?.guild?.id === currentGuildId,
         );
+    const defaultsIndex = categories.findIndex(
+        category => category.categoryInfo?.type === SOUNDBOARD_DEFAULTS_CATEGORY_TYPE,
+    );
     const insertionIndex = favoritesIndex >= 0
         ? favoritesIndex + 1
-        : currentGuildIndex;
+        : currentGuildIndex >= 0
+            ? currentGuildIndex
+            : defaultsIndex >= 0
+                ? defaultsIndex + 1
+                : -1;
 
     if (insertionIndex < 0) return categories;
 

@@ -1,8 +1,10 @@
 using System.Diagnostics;
 using System.Net.Http.Headers;
+using System.Reflection;
 using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text.RegularExpressions;
 using RandomFavorites.Setup.Core.Models;
 
 namespace RandomFavorites.Setup.Core.Services;
@@ -21,15 +23,31 @@ public sealed class ReleaseClient : IDisposable
         "https://github.com/Vencord/Installer/releases/latest/download/checksums.sha256";
     public const string OpenAsarReleaseApiUrl =
         "https://api.github.com/repos/GooseMod/OpenAsar/releases/tags/nightly";
+    private const string ReleaseDownloadBaseUrl =
+        "https://github.com/Yuzuctus/RandomFavorites/releases/download";
 
     private readonly HttpClient _httpClient;
+    private readonly string _bundleUrl;
+    private readonly string _checksumUrl;
+    private readonly string _manifestUrl;
 
-    public ReleaseClient(HttpMessageHandler? handler = null)
+    public ReleaseClient(HttpMessageHandler? handler = null, string? releaseTag = null)
     {
         _httpClient = handler is null ? new HttpClient() : new HttpClient(handler);
         _httpClient.DefaultRequestHeaders.UserAgent.Add(
             new ProductInfoHeaderValue("RandomFavoritesSetup", "1.0"));
         _httpClient.Timeout = TimeSpan.FromMinutes(15);
+
+        var selectedReleaseTag = releaseTag ?? ReadBuildReleaseTag();
+        _bundleUrl = BuildReleaseAssetUrl(selectedReleaseTag, BundleUrl, "RandomFavoritesBundle.zip");
+        _checksumUrl = BuildReleaseAssetUrl(
+            selectedReleaseTag,
+            ChecksumUrl,
+            "RandomFavoritesBundle.zip.sha256");
+        _manifestUrl = BuildReleaseAssetUrl(
+            selectedReleaseTag,
+            ManifestUrl,
+            "RandomFavoritesBundle.manifest.json");
     }
 
     public async Task<string> DownloadVerifiedBundleAsync(
@@ -39,10 +57,10 @@ public sealed class ReleaseClient : IDisposable
     {
         layout.EnsureDirectories();
         var bundlePath = Path.Combine(layout.Downloads, "RandomFavoritesBundle.zip");
-        var checksum = ParseSha256(await _httpClient.GetStringAsync(ChecksumUrl, cancellationToken));
+        var checksum = ParseSha256(await _httpClient.GetStringAsync(_checksumUrl, cancellationToken));
 
         await DownloadFileWithRetriesAsync(
-            BundleUrl,
+            _bundleUrl,
             bundlePath,
             "Téléchargement des fichiers prêts à l'emploi",
             progress,
@@ -67,7 +85,7 @@ public sealed class ReleaseClient : IDisposable
     public async Task<BundleManifest> GetLatestManifestAsync(
         CancellationToken cancellationToken)
     {
-        using var response = await _httpClient.GetAsync(ManifestUrl, cancellationToken);
+        using var response = await _httpClient.GetAsync(_manifestUrl, cancellationToken);
         response.EnsureSuccessStatusCode();
         await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
         var manifest = await JsonSerializer.DeserializeAsync<BundleManifest>(
@@ -322,6 +340,31 @@ public sealed class ReleaseClient : IDisposable
     }
 
     public void Dispose() => _httpClient.Dispose();
+
+    private static string? ReadBuildReleaseTag()
+    {
+        return Assembly.GetEntryAssembly()?
+            .GetCustomAttributes<AssemblyMetadataAttribute>()
+            .FirstOrDefault(attribute => attribute.Key == "RandomFavoritesReleaseTag")?
+            .Value;
+    }
+
+    private static string BuildReleaseAssetUrl(
+        string? releaseTag,
+        string latestUrl,
+        string assetName)
+    {
+        if (string.IsNullOrWhiteSpace(releaseTag)
+            || releaseTag.Equals("latest", StringComparison.OrdinalIgnoreCase))
+        {
+            return latestUrl;
+        }
+
+        if (!Regex.IsMatch(releaseTag, "^v[0-9]+\\.[0-9]+\\.[0-9]+(?:-beta\\.[0-9]+)?$"))
+            throw new ArgumentException("Le tag de release RandomFavorites est invalide.", nameof(releaseTag));
+
+        return $"{ReleaseDownloadBaseUrl}/{releaseTag}/{assetName}";
+    }
 
     private sealed class GitHubRelease
     {
