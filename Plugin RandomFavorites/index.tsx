@@ -34,6 +34,7 @@ import {
     EmojiStore,
     FluxDispatcher,
     GuildStore,
+    IconUtils,
     LocaleStore,
     Menu,
     MessageActions,
@@ -826,6 +827,31 @@ type SoundboardGuild = NonNullable<
 
 /** Stable for the whole session; never reuses a real guild id. */
 let virtualSoundboardGuildId: string | undefined;
+let originalGuildIconUrl: typeof IconUtils.getGuildIconURL | undefined;
+let randomGuildIconUrlOverride: typeof IconUtils.getGuildIconURL | undefined;
+
+function installRandomSoundboardGuildIconOverride() {
+    if (originalGuildIconUrl) return;
+
+    originalGuildIconUrl = IconUtils.getGuildIconURL;
+    randomGuildIconUrlOverride = data => {
+        if (virtualSoundboardGuildId && data.id === virtualSoundboardGuildId)
+            return getRandomSoundboardGuildIconUrl();
+
+        return originalGuildIconUrl!(data);
+    };
+    IconUtils.getGuildIconURL = randomGuildIconUrlOverride;
+}
+
+function restoreRandomSoundboardGuildIconOverride() {
+    if (!originalGuildIconUrl) return;
+
+    if (IconUtils.getGuildIconURL === randomGuildIconUrlOverride)
+        IconUtils.getGuildIconURL = originalGuildIconUrl;
+
+    originalGuildIconUrl = undefined;
+    randomGuildIconUrlOverride = undefined;
+}
 
 function resolveVirtualSoundboardGuildId() {
     if (
@@ -2690,10 +2716,6 @@ export default definePlugin({
                 match: /renderRow:(\i)(?=,renderSectionHeader:\i,renderSectionFooter:\i,renderSection:\i,renderCategoryList:\i,renderHeaderAccessories:\i,rowHeight:48)/,
                 replace: "renderRow:(...args)=>$self.renderRandomSoundboardRow(args[0],args[1],args[3],args[4],()=>$1(...args))",
             },
-            {
-                match: /children:\(0,(\i)\.jsx\)\((\i)\.A,\{guild:(\i)\.categoryInfo\.guild,isSelected:(\i),isLocked:(\i)\}\)/,
-                replace: "children:$self.renderRandomSoundboardGuildIcon($3.categoryInfo.guild,$4,(0,$1.jsx)($2.A,{guild:$3.categoryInfo.guild,isSelected:$4,isLocked:$5}))",
-            },
         ],
     }],
 
@@ -2704,22 +2726,8 @@ export default definePlugin({
 
     addRandomSoundboardCategory,
 
-    renderRandomSoundboardGuildIcon(
-        guild: SoundboardGuild,
-        isSelected: boolean,
-        nativeIcon: ReactNode,
-    ) {
-        if (guild.id !== virtualSoundboardGuildId) return nativeIcon;
-
-        return (
-            <img
-                alt={guild.name}
-                className={isSelected
-                    ? "vc-rf-soundboard-category-icon vc-rf-soundboard-category-icon-selected"
-                    : "vc-rf-soundboard-category-icon"}
-                src={getRandomSoundboardGuildIconUrl()}
-            />
-        );
+    start() {
+        installRandomSoundboardGuildIconOverride();
     },
 
     renderRandomSoundboardRow(
@@ -2741,6 +2749,7 @@ export default definePlugin({
     },
 
     stop() {
+        restoreRandomSoundboardGuildIconOverride();
         activeChannels.clear();
         candidatePicker.clear();
         kindPicker.clear();

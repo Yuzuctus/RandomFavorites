@@ -218,18 +218,6 @@
     white-space: nowrap;
 }
 
-.vc-rf-soundboard-category-icon {
-    display: block;
-    width: 32px;
-    height: 32px;
-    object-fit: cover;
-    border-radius: 50%;
-}
-
-.vc-rf-soundboard-category-icon-selected {
-    border-radius: 12px;
-}
-
 @media (max-width: 360px) {
     .vc-rf-soundboard-grid-row {
         grid-template-columns: 1fr;
