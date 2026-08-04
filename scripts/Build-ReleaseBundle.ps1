@@ -10,7 +10,7 @@ param(
     [string]$OutputDirectory,
 
     [Parameter(Mandatory = $true)]
-    [ValidatePattern("^v[0-9]+\.[0-9]+\.[0-9]+$")]
+    [ValidatePattern("^v[0-9]+\.[0-9]+\.[0-9]+(?:-beta\.[0-9]+)?$")]
     [string]$Version
 )
 

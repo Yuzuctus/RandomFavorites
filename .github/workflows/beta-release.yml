@@ -1,0 +1,122 @@
+name: Publish beta release
+
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+-beta.[0-9]+"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: randomfavorites-beta-release-assets
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Build and publish ${{ github.ref_name }}
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - name: Check out RandomFavorites
+        uses: actions/checkout@v5
+        with:
+          path: random-favorites
+
+      - name: Check out current official Vencord
+        uses: actions/checkout@v5
+        with:
+          repository: Vendicated/Vencord
+          path: vencord
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Enable Vencord's pinned pnpm
+        working-directory: vencord
+        shell: pwsh
+        run: |
+          corepack enable
+          corepack install
+
+      - name: Add RandomFavorites as a userplugin
+        shell: pwsh
+        run: |
+          $destination = "vencord/src/userplugins/randomFavorites"
+          New-Item -ItemType Directory -Force -Path $destination | Out-Null
+          Copy-Item -LiteralPath random-favorites/index.tsx -Destination $destination
+          Copy-Item -LiteralPath "random-favorites/Plugin RandomFavorites" -Destination $destination -Recurse
+
+      - name: Install exact dependencies
+        working-directory: vencord
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify plugin tests, lint, and types
+        working-directory: vencord
+        shell: pwsh
+        run: |
+          pnpm exec tsx --test "src/userplugins/randomFavorites/**/*.test.ts"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          pnpm eslint src/userplugins/randomFavorites
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          pnpm testTsc
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Build custom Vencord
+        working-directory: vencord
+        run: pnpm build
+
+      - name: Build verified release bundle
+        shell: pwsh
+        run: |
+          & random-favorites/scripts/Build-ReleaseBundle.ps1 `
+            -RandomFavoritesDirectory random-favorites `
+            -VencordDirectory vencord `
+            -OutputDirectory release-assets `
+            -Version $env:GITHUB_REF_NAME
+
+      - name: Build self-contained installer
+        shell: pwsh
+        run: |
+          $version = $env:GITHUB_REF_NAME.TrimStart("v")
+          dotnet publish random-favorites/installer/RandomFavorites.Setup/RandomFavorites.Setup.csproj `
+            -c Release -r win-x64 --self-contained true `
+            -p:Version=$version `
+            -o release-assets/setup
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Copy-Item -LiteralPath release-assets/setup/RandomFavoritesSetup.exe `
+            -Destination release-assets/RandomFavoritesSetup.exe
+          $setupPath = Join-Path $PWD "release-assets/RandomFavoritesSetup.exe"
+          $setupHash = (Get-FileHash -LiteralPath $setupPath -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$setupHash  RandomFavoritesSetup.exe" |
+            Set-Content -LiteralPath "$setupPath.sha256" -Encoding ascii -NoNewline
+
+      - name: Run installer safety smoke tests
+        run: >-
+          dotnet run
+          --project random-favorites/installer/RandomFavorites.Setup.SmokeTests/RandomFavorites.Setup.SmokeTests.csproj
+          -c Release
+
+      - name: Publish GitHub pre-release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create $env:GITHUB_REF_NAME `
+            release-assets/RandomFavoritesSetup.exe `
+            release-assets/RandomFavoritesSetup.exe.sha256 `
+            release-assets/RandomFavoritesBundle.zip `
+            release-assets/RandomFavoritesBundle.zip.sha256 `
+            release-assets/RandomFavoritesBundle.manifest.json `
+            --repo $env:GITHUB_REPOSITORY `
+            --title "RandomFavorites $env:GITHUB_REF_NAME" `
+            --generate-notes `
+            --prerelease `
+            --verify-tag
