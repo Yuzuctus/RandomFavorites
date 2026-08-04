@@ -19,7 +19,7 @@ Git, Node.js et pnpm ne sont pas nécessaires. L'installateur prépare les fichi
 - **Clic gauche sur le dé** : effectue le tirage configuré.
 - **Clic droit sur le dé** : choisit GIF, emote, sticker, soundboard et le mode de tirage.
 - **Aperçu sécurisé** : affiche le GIF, l'emote, le sticker ou le son dans une fenêtre privée avant tout envoi. Rien n'est envoyé tant que tu ne confirmes pas.
-- **Soundboard dans le chat** : si **Soundboards au clic gauche** est activé, un son accessible est téléchargé depuis le CDN Discord puis envoyé comme pièce jointe audio. Aucun salon vocal ni permission `SPEAK` ou `USE_SOUNDBOARD` n'est requis.
+- **Soundboard dans le chat** : si **Soundboards au clic gauche** est activé, RandomFavorites charge automatiquement les sons Discord accessibles au premier tirage, puis télécharge le son choisi depuis le CDN Discord et l’envoie comme pièce jointe audio. Aucun salon vocal ni permission `SPEAK` ou `USE_SOUNDBOARD` n'est requis.
 - **Soundboard vocal** : le sélecteur contient toujours un serveur virtuel **FavoriteRandom**, juste sous les favoris. **Lecture directe** joue immédiatement un son aléatoire ; son **Aperçu sécurisé** reste indépendant et confirme une lecture dans le vocal.
 
 Les réglages sont en français si Discord est en français, sinon en anglais. Ils permettent notamment de choisir :
