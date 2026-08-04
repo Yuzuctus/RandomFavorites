@@ -1691,8 +1691,8 @@ function RandomSoundboardActionIcon({
             <svg
                 aria-hidden="true"
                 viewBox="0 0 24 24"
-                width="18"
-                height="18"
+                width="16"
+                height="16"
                 fill="currentColor"
             >
                 <path d="M8 5.4v13.2c0 .8.9 1.3 1.6.8l9-6.6a1 1 0 0 0 0-1.6l-9-6.6A1 1 0 0 0 8 5.4Z" />
@@ -1704,8 +1704,8 @@ function RandomSoundboardActionIcon({
         <svg
             aria-hidden="true"
             viewBox="0 0 24 24"
-            width="18"
-            height="18"
+            width="16"
+            height="16"
             fill="none"
             stroke="currentColor"
             strokeWidth="1.8"
