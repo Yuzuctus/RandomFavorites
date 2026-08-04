@@ -13,7 +13,9 @@ import {
     findOption,
     sendBotMessage,
 } from "@api/Commands";
+import { addServerListElement, removeServerListElement, ServerListRenderPosition } from "@api/ServerList";
 import { definePluginSettings } from "@api/Settings";
+import ErrorBoundary from "@components/ErrorBoundary";
 import { sendMessage } from "@utils/discord";
 import { Logger } from "@utils/Logger";
 import definePlugin, { OptionType } from "@utils/types";
@@ -34,6 +36,7 @@ import {
     EmojiStore,
     FluxDispatcher,
     GuildStore,
+    IconUtils,
     LocaleStore,
     Menu,
     MessageActions,
@@ -49,6 +52,7 @@ import {
     SoundboardStore,
     StickersStore,
     Toasts,
+    Tooltip,
     useEffect,
     useRef,
     UserSettingsActionCreators,
@@ -826,6 +830,31 @@ type SoundboardGuild = NonNullable<
 
 /** Stable for the whole session; never reuses a real guild id. */
 let virtualSoundboardGuildId: string | undefined;
+let originalGuildIconUrl: typeof IconUtils.getGuildIconURL | undefined;
+let randomGuildIconUrlOverride: typeof IconUtils.getGuildIconURL | undefined;
+
+function installRandomSoundboardGuildIconOverride() {
+    if (originalGuildIconUrl) return;
+
+    originalGuildIconUrl = IconUtils.getGuildIconURL;
+    randomGuildIconUrlOverride = data => {
+        if (virtualSoundboardGuildId && data.id === virtualSoundboardGuildId)
+            return getRandomSoundboardGuildIconUrl();
+
+        return originalGuildIconUrl!(data);
+    };
+    IconUtils.getGuildIconURL = randomGuildIconUrlOverride;
+}
+
+function restoreRandomSoundboardGuildIconOverride() {
+    if (!originalGuildIconUrl) return;
+
+    if (IconUtils.getGuildIconURL === randomGuildIconUrlOverride)
+        IconUtils.getGuildIconURL = originalGuildIconUrl;
+
+    originalGuildIconUrl = undefined;
+    randomGuildIconUrlOverride = undefined;
+}
 
 function resolveVirtualSoundboardGuildId() {
     if (
@@ -891,6 +920,49 @@ function addRandomSoundboardCategory(
             items: randomSoundboardGridItems,
         },
         currentGuildId,
+    );
+}
+
+function playRandomSoundboardFromServerList() {
+    const draw = drawRandomSoundboard();
+    if (!draw.sound) {
+        showToast(draw.error ?? localize(
+            "No soundboard sound is available right now.",
+            "Aucun son du soundboard n'est disponible pour le moment.",
+        ), Toasts.Type.FAILURE);
+        return;
+    }
+
+    playSoundboardSelection(draw.sound);
+}
+
+function FavoriteRandomServerListItem() {
+    const tooltip = localize(
+        "FavoriteRandom · Play a random soundboard sound",
+        "FavoriteRandom · Jouer un son aléatoire",
+    );
+
+    return (
+        <Tooltip text={tooltip}>
+            {({ onMouseEnter, onMouseLeave }) => (
+                <div className="vc-rf-server-list-item-container">
+                    <button
+                        aria-label={tooltip}
+                        className="vc-rf-server-list-item"
+                        onClick={playRandomSoundboardFromServerList}
+                        onMouseEnter={onMouseEnter}
+                        onMouseLeave={onMouseLeave}
+                        type="button"
+                    >
+                        <img
+                            alt=""
+                            draggable={false}
+                            src={getRandomSoundboardGuildIconUrl()}
+                        />
+                    </button>
+                </div>
+            )}
+        </Tooltip>
     );
 }
 
@@ -2676,6 +2748,9 @@ export default definePlugin({
     tags: ["Chat", "Commands", "Emotes", "Fun", "Media"],
     settings,
     commands,
+    dependencies: ["ServerListAPI"],
+
+    renderFavoriteRandomServerListItem: ErrorBoundary.wrap(FavoriteRandomServerListItem, { noop: true }),
 
     patches: [{
         // This accessibility id belongs to the soundboard picker itself. The
@@ -2700,6 +2775,14 @@ export default definePlugin({
 
     addRandomSoundboardCategory,
 
+    start() {
+        installRandomSoundboardGuildIconOverride();
+        addServerListElement(
+            ServerListRenderPosition.In,
+            this.renderFavoriteRandomServerListItem,
+        );
+    },
+
     renderRandomSoundboardRow(
         descriptors: readonly RandomSoundboardRowDescriptor[],
         rowProps: ComponentProps<"ul">,
@@ -2719,6 +2802,11 @@ export default definePlugin({
     },
 
     stop() {
+        removeServerListElement(
+            ServerListRenderPosition.In,
+            this.renderFavoriteRandomServerListItem,
+        );
+        restoreRandomSoundboardGuildIconOverride();
         activeChannels.clear();
         candidatePicker.clear();
         kindPicker.clear();
