@@ -68,6 +68,8 @@ import {
     collectUsableSoundboardSounds,
     insertRandomSoundboardCategory,
     RANDOM_SOUNDBOARD_CATEGORY_KEY,
+    RANDOM_SOUNDBOARD_GUILD_ICON_HASH,
+    RANDOM_SOUNDBOARD_GUILD_ICON_URL,
     soundboardCandidateKey,
     type SoundboardCategory,
 } from "./soundboardPool";
@@ -649,9 +651,9 @@ function createRandomSoundboardGuild(
         id: { value: currentGuildId, enumerable: true },
         name: { value: "FavoriteRandom", enumerable: true },
         acronym: { value: "FR", enumerable: true },
-        icon: { value: null, enumerable: true },
-        iconHash: { value: null, enumerable: true },
-        getIconURL: { value: () => null },
+        icon: { value: RANDOM_SOUNDBOARD_GUILD_ICON_HASH, enumerable: true },
+        iconHash: { value: RANDOM_SOUNDBOARD_GUILD_ICON_HASH, enumerable: true },
+        getIconURL: { value: () => RANDOM_SOUNDBOARD_GUILD_ICON_URL },
     });
 
     return virtualGuild;
@@ -1743,17 +1745,17 @@ function RandomSoundboardActionsRow({
 
                 return (
                     <li
-                        className="vc-rf-soundboard-grid-item"
+                        className={[
+                            "vc-rf-soundboard-grid-item",
+                            nativeItemClassName,
+                        ].filter(Boolean).join(" ")}
                         key={action}
                         ref={ref}
                     >
                         <button
                             {...nativeButtonProps}
                             type="button"
-                            className={[
-                                "vc-rf-soundboard-grid-button",
-                                nativeItemClassName,
-                            ].filter(Boolean).join(" ")}
+                            className="vc-rf-soundboard-grid-button"
                             aria-label={tooltip}
                             title={tooltip}
                             onClick={event => {
@@ -1765,7 +1767,7 @@ function RandomSoundboardActionsRow({
                                 onItemMouseEnter?.(index);
                             }}
                         >
-                            <span className="vc-rf-soundboard-grid-icon">
+                            <span className="vc-rf-soundboard-grid-icon" aria-hidden="true">
                                 <RandomSoundboardActionIcon action={action} />
                             </span>
                             <span className="vc-rf-soundboard-grid-label">
