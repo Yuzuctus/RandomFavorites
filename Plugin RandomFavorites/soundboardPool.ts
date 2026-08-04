@@ -24,36 +24,6 @@ export interface SoundboardCategory {
 
 export const RANDOM_SOUNDBOARD_CATEGORY_KEY = "vc-rf-random-soundboard";
 
-/**
- * Fake CDN hash exposed on the virtual guild. It never reaches the network
- * because getIconURL is overridden, but it must stay truthy so Discord never
- * falls back to the mismatched acronym avatar, and it must not start with
- * Discord's animated prefix "a_" so nothing requests an animated variant.
- */
-export const RANDOM_SOUNDBOARD_GUILD_ICON_HASH = "4c7a8f2e9b1d40638e5f0a2c6d8b3e17";
-
-/**
- * Guild-icon artwork for the virtual FavoriteRandom server: a white five-pip
- * die on Discord's blurple, kept inside the central safe zone so it survives
- * both the circle mask of the category rail and the squircle mask of section
- * headers. Served as a data URI, which Discord's img-src CSP explicitly allows,
- * so the picker renders it through the exact same masked <img> path as real
- * guild icons instead of the mismatched acronym fallback.
- */
-const RANDOM_SOUNDBOARD_GUILD_ICON_SVG =
-    '<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">'
-    + '<rect width="128" height="128" fill="#5865F2"/>'
-    + '<rect x="30" y="30" width="68" height="68" rx="16" fill="#FFFFFF"/>'
-    + '<circle cx="49" cy="49" r="7" fill="#5865F2"/>'
-    + '<circle cx="79" cy="49" r="7" fill="#5865F2"/>'
-    + '<circle cx="64" cy="64" r="7" fill="#5865F2"/>'
-    + '<circle cx="49" cy="79" r="7" fill="#5865F2"/>'
-    + '<circle cx="79" cy="79" r="7" fill="#5865F2"/>'
-    + "</svg>";
-
-export const RANDOM_SOUNDBOARD_GUILD_ICON_URL =
-    `data:image/svg+xml;base64,${btoa(RANDOM_SOUNDBOARD_GUILD_ICON_SVG)}`;
-
 export function soundboardCandidateKey(candidate: SoundboardCandidate) {
     return `${candidate.guildId}:${candidate.soundId}`;
 }

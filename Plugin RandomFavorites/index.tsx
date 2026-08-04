@@ -16,7 +16,6 @@ import {
 import { definePluginSettings } from "@api/Settings";
 import { sendMessage } from "@utils/discord";
 import { Logger } from "@utils/Logger";
-import { classes } from "@utils/misc";
 import definePlugin, { OptionType } from "@utils/types";
 import {
     Channel,
@@ -69,8 +68,6 @@ import {
     collectUsableSoundboardSounds,
     insertRandomSoundboardCategory,
     RANDOM_SOUNDBOARD_CATEGORY_KEY,
-    RANDOM_SOUNDBOARD_GUILD_ICON_HASH,
-    RANDOM_SOUNDBOARD_GUILD_ICON_URL,
     soundboardCandidateKey,
     type SoundboardCategory,
 } from "./soundboardPool";
@@ -199,15 +196,6 @@ const getSoundboardSoundUrl = findByCodeLazy(
     "CDN_HOST",
     ".SOUNDBOARD_SOUND(",
 ) as GetSoundboardSoundUrl;
-// Discord's own soundboard button classes, resolved without any hardcoded
-// hash so they follow the native theme, light/dark mode and custom themes.
-const soundboardButtonClasses = findByPropsLazy(
-    "soundButtonWrapper",
-    "soundButton",
-    "soundButtonInteractive",
-    "soundInfo",
-    "soundName",
-) as Record<string, string>;
 const activeChannels = new Set<string>();
 const concreteKinds: ConcreteFavoriteKind[] = ["gif", "emoji", "sticker"];
 const randomSoundboardGridItems: RandomSoundboardGridItem[] = [
@@ -661,9 +649,9 @@ function createRandomSoundboardGuild(
         id: { value: currentGuildId, enumerable: true },
         name: { value: "FavoriteRandom", enumerable: true },
         acronym: { value: "FR", enumerable: true },
-        icon: { value: RANDOM_SOUNDBOARD_GUILD_ICON_HASH, enumerable: true },
-        iconHash: { value: RANDOM_SOUNDBOARD_GUILD_ICON_HASH, enumerable: true },
-        getIconURL: { value: () => RANDOM_SOUNDBOARD_GUILD_ICON_URL },
+        icon: { value: null, enumerable: true },
+        iconHash: { value: null, enumerable: true },
+        getIconURL: { value: () => null },
     });
 
     return virtualGuild;
@@ -1740,7 +1728,9 @@ function RandomSoundboardActionsRow({
     return (
         <ul
             {...nativeRowProps}
-            className={className}
+            className={["vc-rf-soundboard-grid-row", className]
+                .filter(Boolean)
+                .join(" ")}
         >
             {actions.map(({ action, label, tooltip }, index) => {
                 const itemProps = getItemProps?.(index) ?? {};
@@ -1753,19 +1743,17 @@ function RandomSoundboardActionsRow({
 
                 return (
                     <li
-                        className={soundboardButtonClasses.soundButtonWrapper}
+                        className="vc-rf-soundboard-grid-item"
                         key={action}
                         ref={ref}
                     >
                         <button
                             {...nativeButtonProps}
                             type="button"
-                            className={classes(
-                                soundboardButtonClasses.soundButton,
-                                soundboardButtonClasses.soundButtonInteractive,
-                                "vc-rf-soundboard-native-button",
+                            className={[
+                                "vc-rf-soundboard-grid-button",
                                 nativeItemClassName,
-                            )}
+                            ].filter(Boolean).join(" ")}
                             aria-label={tooltip}
                             title={tooltip}
                             onClick={event => {
@@ -1777,21 +1765,11 @@ function RandomSoundboardActionsRow({
                                 onItemMouseEnter?.(index);
                             }}
                         >
-                            <span className={soundboardButtonClasses.soundInfo}>
-                                <span
-                                    aria-hidden="true"
-                                    className="vc-rf-soundboard-action-icon"
-                                >
-                                    <RandomSoundboardActionIcon action={action} />
-                                </span>
-                                <span
-                                    className={classes(
-                                        soundboardButtonClasses.soundName,
-                                        soundboardButtonClasses.hasEmoji,
-                                    )}
-                                >
-                                    {label}
-                                </span>
+                            <span className="vc-rf-soundboard-grid-icon">
+                                <RandomSoundboardActionIcon action={action} />
+                            </span>
+                            <span className="vc-rf-soundboard-grid-label">
+                                {label}
                             </span>
                         </button>
                     </li>
