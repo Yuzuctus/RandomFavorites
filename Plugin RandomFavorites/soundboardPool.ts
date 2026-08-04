@@ -5,8 +5,14 @@
  */
 
 export interface SoundboardCandidate {
-    guildId: string;
+    available?: boolean;
+    guildId?: string | null;
     soundId: string;
+}
+
+export interface ChatSoundboardPool<T extends SoundboardCandidate> {
+    candidates: T[];
+    rawCount: number;
 }
 
 export interface SoundboardCategory {
@@ -101,7 +107,7 @@ export function revokeRandomSoundboardGuildIconUrl() {
 }
 
 export function soundboardCandidateKey(candidate: SoundboardCandidate) {
-    return `${candidate.guildId}:${candidate.soundId}`;
+    return `soundboard:${candidate.guildId ?? "0"}:${candidate.soundId}`;
 }
 
 /**
@@ -123,6 +129,30 @@ export function collectUsableSoundboardSounds<T extends SoundboardCandidate>(
     }
 
     return Array.from(uniqueSounds.values());
+}
+
+/**
+ * Builds the chat pool from the sounds already exposed by SoundboardStore.
+ * rawCount deliberately includes unavailable sounds, while candidates do not.
+ */
+export function collectChatSoundboardPool<T extends SoundboardCandidate>(
+    soundGroups: Iterable<readonly T[]>,
+    canAttachFiles: boolean,
+): ChatSoundboardPool<T> {
+    const uniqueSounds = new Map<string, T>();
+
+    for (const sounds of soundGroups) {
+        for (const sound of sounds) {
+            uniqueSounds.set(soundboardCandidateKey(sound), sound);
+        }
+    }
+
+    return {
+        candidates: canAttachFiles
+            ? Array.from(uniqueSounds.values()).filter(sound => sound.available !== false)
+            : [],
+        rawCount: uniqueSounds.size,
+    };
 }
 
 /**

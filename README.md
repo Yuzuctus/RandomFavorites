@@ -17,16 +17,18 @@ Git, Node.js et pnpm ne sont pas nécessaires. L'installateur prépare les fichi
 ## Utiliser le plugin
 
 - **Clic gauche sur le dé** : effectue le tirage configuré.
-- **Clic droit sur le dé** : choisit GIF, emote, sticker et le mode de tirage.
-- **Aperçu sécurisé** : affiche le GIF, l'emote ou le sticker dans une fenêtre privée avant tout envoi. Rien n'est envoyé tant que tu ne confirmes pas.
-- **Soundboard aléatoire** : le sélecteur contient un serveur virtuel **FavoriteRandom**, juste sous les favoris. **Lecture directe** joue immédiatement un son aléatoire ; **Aperçu sécurisé** permet de l'écouter localement avant de confirmer sa lecture dans le vocal. Ces deux actions sont indépendantes du réglage d'aperçu des GIFs, emotes et stickers.
+- **Clic droit sur le dé** : choisit GIF, emote, sticker, soundboard et le mode de tirage.
+- **Aperçu sécurisé** : affiche le GIF, l'emote, le sticker ou le son dans une fenêtre privée avant tout envoi. Rien n'est envoyé tant que tu ne confirmes pas.
+- **Soundboard dans le chat** : si **Soundboards au clic gauche** est activé, un son accessible est téléchargé depuis le CDN Discord puis envoyé comme pièce jointe audio. Aucun salon vocal ni permission `SPEAK` ou `USE_SOUNDBOARD` n'est requis.
+- **Soundboard vocal** : le sélecteur contient toujours un serveur virtuel **FavoriteRandom**, juste sous les favoris. **Lecture directe** joue immédiatement un son aléatoire ; son **Aperçu sécurisé** reste indépendant et confirme une lecture dans le vocal.
 
 Les réglages sont en français si Discord est en français, sinon en anglais. Ils permettent notamment de choisir :
 
 - un élément de chaque type ou un seul élément parmi les types cochés ;
-- une répartition équilibrée sur la durée (base `33/33/33`, ou `50/50` avec deux types) ;
+- une répartition équilibrée sur la durée (base `25/25/25/25`, `33/33/33`, ou `50/50` avec deux types) ;
 - les spoilers et le texte `Gif random :` ;
 - toutes les emotes/stickers disponibles ou seulement les favoris ;
+- le nom de base des pièces jointes soundboard ; l'extension audio réelle (`.mp3`, `.ogg` ou `.opus`) est ajoutée automatiquement ;
 - l'aperçu avant envoi et une réduction probabiliste des répétitions, avec une intensité légère, équilibrée ou forte.
 
 Le tirage utilise la source aléatoire cryptographique de l'environnement Discord. L'anti-répétition ne bloque jamais totalement un résultat : il réduit temporairement le poids des éléments récents, puis leur rend progressivement leur probabilité normale.

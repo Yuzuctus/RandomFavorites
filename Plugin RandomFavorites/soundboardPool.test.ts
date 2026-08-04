@@ -8,6 +8,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import {
+    collectChatSoundboardPool,
     collectUsableSoundboardSounds,
     getRandomSoundboardGuildIconUrl,
     insertRandomSoundboardCategory,
@@ -61,6 +62,37 @@ describe("soundboardPool", () => {
         assert.notEqual(
             soundboardCandidateKey({ guildId: "guild-a", soundId: "same-id" }),
             soundboardCandidateKey({ guildId: "guild-b", soundId: "same-id" }),
+        );
+    });
+
+    it("uses a stable chat key and normalizes missing guild ids", () => {
+        assert.equal(
+            soundboardCandidateKey({ guildId: undefined, soundId: "default" }),
+            "soundboard:0:default",
+        );
+    });
+
+    it("keeps detected counts separate from usable chat candidates", () => {
+        const unavailable: TestSound = {
+            available: false,
+            guildId: "guild-a",
+            name: "Locked",
+            soundId: "sound-1",
+        };
+        const usable: TestSound = {
+            available: true,
+            guildId: "guild-b",
+            name: "Usable",
+            soundId: "sound-2",
+        };
+
+        assert.deepEqual(
+            collectChatSoundboardPool([[unavailable, usable], [unavailable]], true),
+            { candidates: [usable], rawCount: 2 },
+        );
+        assert.deepEqual(
+            collectChatSoundboardPool([[unavailable, usable]], false),
+            { candidates: [], rawCount: 2 },
         );
     });
 

@@ -74,6 +74,36 @@
     object-fit: contain;
 }
 
+.vc-rf-preview-audio {
+    display: flex;
+    width: 100%;
+    flex-direction: column;
+    align-items: center;
+    gap: 16px;
+}
+
+.vc-rf-preview-audio-icon {
+    display: grid;
+    width: 72px;
+    height: 72px;
+    color: var(--brand-500);
+    font-size: 36px;
+    background: var(--background-secondary);
+    border-radius: 18px;
+    place-items: center;
+}
+
+.vc-rf-preview-audio-controls {
+    width: 100%;
+    min-width: 0;
+}
+
+.vc-rf-preview-audio-error {
+    color: var(--text-danger);
+    font-size: 12px;
+    text-align: center;
+}
+
 .vc-rf-preview-meta {
     display: flex;
     flex-direction: column;
