@@ -4,7 +4,19 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
-export type SoundboardAudioFormat = "mp3" | "ogg" | "opus";
+export type SoundboardAudioFormat =
+    | "aac"
+    | "aiff"
+    | "amr"
+    | "caf"
+    | "flac"
+    | "m4a"
+    | "mp3"
+    | "ogg"
+    | "opus"
+    | "wav"
+    | "webm"
+    | "wma";
 
 export interface SoundboardSnapshot {
     emojiId: string | null;
@@ -19,7 +31,7 @@ export const DEFAULT_SOUNDBOARD_FILE_NAME = "Son aléatoire";
 export const MAX_SOUNDBOARD_FILE_NAME_LENGTH = 100;
 export const MAX_SOUNDBOARD_AUDIO_BYTES = 20 * 1024 * 1024;
 
-const audioFileExtension = /\.(?:mp3|ogg|opus)$/i;
+const audioFileExtension = /\.(?:aac|aiff|aifc|amr|caf|flac|m4a|mp3|ogg|opus|wav|webm|wma)$/i;
 const forbiddenFileNameCharacters = /[\\/:*?"<>|]/g;
 const controlCharacters = /[\u0000-\u001F\u007F-\u009F]/g;
 
@@ -63,12 +75,30 @@ export function getSoundboardAudioExtension(format: SoundboardAudioFormat) {
 
 export function getSoundboardAudioMimeType(format: SoundboardAudioFormat) {
     switch (format) {
+        case "aac":
+            return "audio/aac";
+        case "aiff":
+            return "audio/aiff";
+        case "amr":
+            return "audio/amr";
+        case "caf":
+            return "audio/x-caf";
+        case "flac":
+            return "audio/flac";
+        case "m4a":
+            return "audio/mp4";
         case "mp3":
             return "audio/mpeg";
         case "ogg":
             return "audio/ogg";
         case "opus":
             return "audio/opus";
+        case "wav":
+            return "audio/wav";
+        case "webm":
+            return "audio/webm";
+        case "wma":
+            return "audio/x-ms-wma";
     }
 }
 
@@ -82,38 +112,118 @@ export function buildSoundboardFileName(
 export function soundboardAudioFormatFromMime(
     contentType: string | null | undefined,
 ): SoundboardAudioFormat | undefined {
-    const mimeType = contentType?.split(";", 1)[0].trim().toLowerCase();
+    const normalizedContentType = contentType?.trim().toLowerCase() ?? "";
+    const mimeType = normalizedContentType.split(";", 1)[0].trim();
 
     switch (mimeType) {
+        case "audio/aac":
+        case "audio/aacp":
+        case "audio/x-aac":
+            return "aac";
+        case "audio/aiff":
+        case "audio/x-aiff":
+        case "audio/aifc":
+            return "aiff";
+        case "audio/amr":
+        case "audio/amr-wb":
+            return "amr";
+        case "audio/x-caf":
+        case "audio/caf":
+            return "caf";
+        case "audio/flac":
+        case "audio/x-flac":
+            return "flac";
+        case "audio/mp4":
+        case "audio/x-m4a":
+        case "video/mp4":
+            return "m4a";
         case "audio/mpeg":
         case "audio/mp3":
+        case "audio/x-mpeg":
+        case "audio/x-mp3":
             return "mp3";
         case "audio/ogg":
+        case "audio/x-ogg":
         case "application/ogg":
-            return "ogg";
+        case "application/x-ogg":
+            return /(?:^|[;\s])codecs?\s*=\s*["']?opus\b/.test(normalizedContentType)
+                ? "opus"
+                : "ogg";
         case "audio/opus":
+        case "audio/opus+ogg":
+        case "audio/x-opus+ogg":
             return "opus";
+        case "audio/wav":
+        case "audio/wave":
+        case "audio/x-wav":
+            return "wav";
+        case "audio/webm":
+        case "video/webm":
+            return "webm";
+        case "audio/x-ms-wma":
+        case "video/x-ms-asf":
+            return "wma";
         default:
             return undefined;
     }
 }
 
+function hasAsciiSignature(
+    bytes: ArrayLike<number>,
+    signature: string,
+    offset = 0,
+) {
+    if (bytes.length < offset + signature.length) return false;
+
+    for (let index = 0; index < signature.length; index++) {
+        if (bytes[offset + index] !== signature.charCodeAt(index)) return false;
+    }
+
+    return true;
+}
+
+function containsAsciiSignature(
+    bytes: ArrayLike<number>,
+    signature: string,
+    maximumOffset = 512,
+) {
+    const lastOffset = Math.min(bytes.length - signature.length, maximumOffset);
+    for (let offset = 0; offset <= lastOffset; offset++) {
+        if (hasAsciiSignature(bytes, signature, offset)) return true;
+    }
+
+    return false;
+}
+
 export function soundboardAudioFormatFromMagicBytes(
     bytes: ArrayLike<number>,
 ): SoundboardAudioFormat | undefined {
-    if (bytes.length >= 4
-        && bytes[0] === 0x4F
-        && bytes[1] === 0x67
-        && bytes[2] === 0x67
-        && bytes[3] === 0x53) {
-        return "ogg";
+    if (hasAsciiSignature(bytes, "OggS"))
+        return containsAsciiSignature(bytes, "OpusHead") ? "opus" : "ogg";
+
+    if (hasAsciiSignature(bytes, "ID3")) return "mp3";
+
+    if ((hasAsciiSignature(bytes, "RIFF") || hasAsciiSignature(bytes, "RF64"))
+        && hasAsciiSignature(bytes, "WAVE", 8)) {
+        return "wav";
     }
 
-    if (bytes.length >= 3
-        && bytes[0] === 0x49
-        && bytes[1] === 0x44
-        && bytes[2] === 0x33) {
-        return "mp3";
+    if (hasAsciiSignature(bytes, "fLaC")) return "flac";
+    if (hasAsciiSignature(bytes, "\x1A\x45\xDF\xA3")) return "webm";
+    if (hasAsciiSignature(bytes, "FORM")
+        && (hasAsciiSignature(bytes, "AIFF", 8) || hasAsciiSignature(bytes, "AIFC", 8))) {
+        return "aiff";
+    }
+    if (hasAsciiSignature(bytes, "caff")) return "caf";
+    if (hasAsciiSignature(bytes, "#!AMR")) return "amr";
+
+    if (bytes.length >= 8 && hasAsciiSignature(bytes, "ftyp", 4)) return "m4a";
+
+    // AAC ADTS frames use a 12-bit sync word and have no MPEG layer bits.
+    if (bytes.length >= 2
+        && bytes[0] === 0xFF
+        && (bytes[1] & 0xF6) === 0xF0) {
+        return "aac";
     }
 
     // MPEG audio frame sync, with valid layer, bitrate and sample-rate bits.
@@ -126,25 +236,26 @@ export function soundboardAudioFormatFromMagicBytes(
         return "mp3";
     }
 
-    return undefined;
-}
+    if (bytes.length >= 4
+        && bytes[0] === 0x30
+        && bytes[1] === 0x26
+        && bytes[2] === 0xB2
+        && bytes[3] === 0x75) {
+        return "wma";
+    }
 
-function isGenericMimeType(contentType: string | null | undefined) {
-    const mimeType = contentType?.split(";", 1)[0].trim().toLowerCase();
-    return !mimeType
-        || mimeType === "application/octet-stream"
-        || mimeType === "application/octetstream"
-        || mimeType === "binary/octet-stream";
+    return undefined;
 }
 
 export function detectSoundboardAudioFormat(
     contentType: string | null | undefined,
     bytes: ArrayLike<number>,
 ) {
-    return soundboardAudioFormatFromMime(contentType)
-        ?? (isGenericMimeType(contentType)
-            ? soundboardAudioFormatFromMagicBytes(bytes)
-            : undefined);
+    const mimeFormat = soundboardAudioFormatFromMime(contentType);
+    const magicFormat = soundboardAudioFormatFromMagicBytes(bytes);
+
+    if (magicFormat === "ogg" && mimeFormat === "opus") return "opus";
+    return magicFormat ?? mimeFormat;
 }
 
 export function isReasonableSoundboardBlob(
