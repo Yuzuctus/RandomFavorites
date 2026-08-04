@@ -33,10 +33,17 @@ export const RANDOM_SOUNDBOARD_CATEGORY_KEY = "vc-rf-random-soundboard";
 export const RANDOM_SOUNDBOARD_GUILD_ICON_HASH = "4c7a8f2e9b1d40638e5f0a2c6d8b3e17";
 
 /**
- * Guild-icon artwork for FavoriteRandom: a white five-pip die on Discord
- * blurple, served as a data URI (allowed by Discord's img-src CSP).
+ * Deterministic snowflake reserved for FavoriteRandom when the current user id
+ * is unavailable or collides with a real guild. Far outside normal Discord
+ * snowflake ranges so GuildStore lookups stay empty.
  */
-const RANDOM_SOUNDBOARD_GUILD_ICON_SVG =
+export const RANDOM_SOUNDBOARD_VIRTUAL_GUILD_FALLBACK_ID = "999000000000000000";
+
+/**
+ * Guild-icon artwork for FavoriteRandom: a white five-pip die on Discord blurple.
+ * Served through a stable blob: URL (compatible with Discord <img>), never data:.
+ */
+export const RANDOM_SOUNDBOARD_GUILD_ICON_SVG =
     '<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">'
     + '<rect width="128" height="128" fill="#5865F2"/>'
     + '<rect x="30" y="30" width="68" height="68" rx="16" fill="#FFFFFF"/>'
@@ -47,8 +54,51 @@ const RANDOM_SOUNDBOARD_GUILD_ICON_SVG =
     + '<circle cx="79" cy="79" r="7" fill="#5865F2"/>'
     + "</svg>";
 
-export const RANDOM_SOUNDBOARD_GUILD_ICON_URL =
-    `data:image/svg+xml;base64,${btoa(RANDOM_SOUNDBOARD_GUILD_ICON_SVG)}`;
+let randomSoundboardGuildIconUrl: string | undefined;
+
+/**
+ * Picks a stable virtual guild id that is never an existing guild. Preferred
+ * candidates are tried first (e.g. the current user id); otherwise the reserved
+ * fallback snowflake is used, scanning forward on collision.
+ */
+export function pickVirtualSoundboardGuildId(
+    preferredIds: readonly (string | null | undefined)[],
+    isExistingGuild: (id: string) => boolean,
+    fallbackId = RANDOM_SOUNDBOARD_VIRTUAL_GUILD_FALLBACK_ID,
+) {
+    for (const candidate of preferredIds) {
+        if (candidate && !isExistingGuild(candidate)) return candidate;
+    }
+
+    if (!isExistingGuild(fallbackId)) return fallbackId;
+
+    let next = BigInt(fallbackId);
+    for (let attempt = 0; attempt < 1_000; attempt++) {
+        next += 1n;
+        const id = String(next);
+        if (!isExistingGuild(id)) return id;
+    }
+
+    return fallbackId;
+}
+
+/** Lazy singleton blob URL for the FavoriteRandom guild icon. */
+export function getRandomSoundboardGuildIconUrl() {
+    if (randomSoundboardGuildIconUrl) return randomSoundboardGuildIconUrl;
+
+    randomSoundboardGuildIconUrl = URL.createObjectURL(
+        new Blob([RANDOM_SOUNDBOARD_GUILD_ICON_SVG], { type: "image/svg+xml" }),
+    );
+    return randomSoundboardGuildIconUrl;
+}
+
+/** Revokes the icon blob URL so reloads do not leak object URLs. */
+export function revokeRandomSoundboardGuildIconUrl() {
+    if (!randomSoundboardGuildIconUrl) return;
+
+    URL.revokeObjectURL(randomSoundboardGuildIconUrl);
+    randomSoundboardGuildIconUrl = undefined;
+}
 
 export function soundboardCandidateKey(candidate: SoundboardCandidate) {
     return `${candidate.guildId}:${candidate.soundId}`;

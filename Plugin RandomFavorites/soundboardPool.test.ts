@@ -9,11 +9,15 @@ import { describe, it } from "node:test";
 
 import {
     collectUsableSoundboardSounds,
+    getRandomSoundboardGuildIconUrl,
     insertRandomSoundboardCategory,
     isRandomSoundboardCategory,
+    pickVirtualSoundboardGuildId,
     RANDOM_SOUNDBOARD_CATEGORY_KEY,
     RANDOM_SOUNDBOARD_GUILD_ICON_HASH,
-    RANDOM_SOUNDBOARD_GUILD_ICON_URL,
+    RANDOM_SOUNDBOARD_GUILD_ICON_SVG,
+    RANDOM_SOUNDBOARD_VIRTUAL_GUILD_FALLBACK_ID,
+    revokeRandomSoundboardGuildIconUrl,
     soundboardCandidateKey,
 } from "./soundboardPool";
 
@@ -122,21 +126,50 @@ describe("soundboardPool", () => {
         );
     });
 
-    it("serves the virtual server icon as a CSP-safe SVG data URI", () => {
-        const prefix = "data:image/svg+xml;base64,";
+    it("serves the virtual server icon as a stable blob URL", () => {
+        revokeRandomSoundboardGuildIconUrl();
 
-        assert.ok(RANDOM_SOUNDBOARD_GUILD_ICON_URL.startsWith(prefix));
+        const first = getRandomSoundboardGuildIconUrl();
+        const second = getRandomSoundboardGuildIconUrl();
 
-        const svg = atob(RANDOM_SOUNDBOARD_GUILD_ICON_URL.slice(prefix.length));
+        assert.equal(first, second);
+        assert.match(first, /^blob:/);
+        assert.ok(RANDOM_SOUNDBOARD_GUILD_ICON_SVG.startsWith('<svg xmlns="http://www.w3.org/2000/svg"'));
+        assert.equal(RANDOM_SOUNDBOARD_GUILD_ICON_SVG.match(/<circle /g)?.length, 5);
+        assert.ok(RANDOM_SOUNDBOARD_GUILD_ICON_SVG.includes('fill="#5865F2"'));
 
-        assert.ok(svg.startsWith('<svg xmlns="http://www.w3.org/2000/svg"'));
-        assert.ok(svg.endsWith("</svg>"));
-        assert.equal(svg.match(/<circle /g)?.length, 5);
-        assert.ok(svg.includes('fill="#5865F2"'));
+        revokeRandomSoundboardGuildIconUrl();
+        const third = getRandomSoundboardGuildIconUrl();
+        assert.match(third, /^blob:/);
+        assert.notEqual(third, first);
+        revokeRandomSoundboardGuildIconUrl();
     });
 
     it("keeps the fake icon hash truthy but never animated", () => {
         assert.match(RANDOM_SOUNDBOARD_GUILD_ICON_HASH, /^[0-9a-f]{32}$/);
         assert.ok(!RANDOM_SOUNDBOARD_GUILD_ICON_HASH.startsWith("a_"));
+    });
+
+    it("picks a preferred non-guild id for the virtual server", () => {
+        const existing = new Set(["guild-a", "guild-b"]);
+        assert.equal(
+            pickVirtualSoundboardGuildId(
+                ["guild-a", "user-1", "user-2"],
+                id => existing.has(id),
+            ),
+            "user-1",
+        );
+    });
+
+    it("falls back to the reserved snowflake when preferences collide", () => {
+        const existing = new Set([
+            "user-1",
+            RANDOM_SOUNDBOARD_VIRTUAL_GUILD_FALLBACK_ID,
+        ]);
+
+        assert.equal(
+            pickVirtualSoundboardGuildId(["user-1"], id => existing.has(id)),
+            String(BigInt(RANDOM_SOUNDBOARD_VIRTUAL_GUILD_FALLBACK_ID) + 1n),
+        );
     });
 });

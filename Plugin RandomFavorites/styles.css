@@ -97,10 +97,10 @@
     text-align: center;
 }
 
-.vc-rf-soundboard-grid-row {
+ul.vc-rf-soundboard-grid-row {
     box-sizing: border-box;
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 8px;
     width: 100%;
     min-height: 48px;
@@ -117,9 +117,8 @@
 }
 
 /*
- * Solid theme tokens with hard fallbacks so the chips stay visible even when
- * Discord renames a CSS variable or a native row class tries to zero them out.
- * No Discord hashed class names — safe and theme-aware.
+ * Local chips only — no Discord hashed class names. Theme tokens with
+ * fallbacks so light/dark/custom themes stay readable next to native buttons.
  */
 li.vc-rf-soundboard-grid-item > button.vc-rf-soundboard-grid-button {
     box-sizing: border-box;
@@ -132,33 +131,31 @@ li.vc-rf-soundboard-grid-item > button.vc-rf-soundboard-grid-button {
     margin: 0;
     padding: 0 12px;
     overflow: hidden;
-    color: var(--text-default, var(--text-normal, #dbdee1));
+    color: var(--text-default, var(--text-normal));
     font: inherit;
     cursor: pointer;
-    background-color: var(--background-secondary, var(--background-base-lower, #2b2d31));
-    border: 1px solid var(--border-subtle, var(--background-modifier-accent, rgb(255 255 255 / 6%)));
+    background-color: var(--background-base-low, var(--background-secondary));
+    border: 0;
     border-radius: 8px;
     transition:
         background-color 80ms ease,
         color 80ms ease,
-        border-color 80ms ease,
         transform 80ms ease;
 }
 
 li.vc-rf-soundboard-grid-item > button.vc-rf-soundboard-grid-button:hover {
-    color: var(--interactive-hover, var(--text-default, #fff));
-    background-color: var(--background-modifier-hover, var(--background-secondary-alt, #35373c));
-    border-color: var(--border-subtle, rgb(255 255 255 / 10%));
+    color: var(--text-default, var(--text-normal));
+    background-color: var(--background-modifier-hover);
 }
 
 li.vc-rf-soundboard-grid-item > button.vc-rf-soundboard-grid-button:active {
-    color: var(--interactive-active, var(--text-default, #fff));
-    background-color: var(--background-modifier-active, var(--background-secondary, #2b2d31));
+    color: var(--text-default, var(--text-normal));
+    background-color: var(--background-modifier-active);
     transform: scale(.98);
 }
 
 li.vc-rf-soundboard-grid-item > button.vc-rf-soundboard-grid-button:focus-visible {
-    outline: 2px solid var(--focus-primary, var(--brand-500, #5865f2));
+    outline: 2px solid var(--focus-primary, var(--brand-500));
     outline-offset: -2px;
 }
 
@@ -166,18 +163,18 @@ li.vc-rf-soundboard-grid-item > button.vc-rf-soundboard-grid-button .vc-rf-sound
     display: grid;
     flex: 0 0 20px;
     height: 20px;
-    color: var(--interactive-normal, var(--text-default, #b5bac1));
+    color: var(--interactive-normal);
     place-items: center;
 }
 
 li.vc-rf-soundboard-grid-item > button.vc-rf-soundboard-grid-button:hover .vc-rf-soundboard-grid-icon {
-    color: var(--interactive-hover, var(--text-default, #fff));
+    color: var(--interactive-hover, var(--interactive-normal));
 }
 
 li.vc-rf-soundboard-grid-item > button.vc-rf-soundboard-grid-button .vc-rf-soundboard-grid-label {
     min-width: 0;
     overflow: hidden;
-    color: var(--text-default, var(--text-normal, #dbdee1));
+    color: var(--text-default, var(--text-normal));
     font-size: 14px;
     font-weight: 500;
     line-height: 18px;
@@ -185,9 +182,9 @@ li.vc-rf-soundboard-grid-item > button.vc-rf-soundboard-grid-button .vc-rf-sound
     white-space: nowrap;
 }
 
-@media (max-width: 430px) {
-    .vc-rf-soundboard-grid-row {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
+@media (max-width: 320px) {
+    ul.vc-rf-soundboard-grid-row {
+        grid-template-columns: minmax(0, 1fr);
     }
 }
 

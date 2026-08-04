@@ -66,10 +66,12 @@ import {
 import { buildSelectionPlan } from "./selectionPlan";
 import {
     collectUsableSoundboardSounds,
+    getRandomSoundboardGuildIconUrl,
     insertRandomSoundboardCategory,
+    pickVirtualSoundboardGuildId,
     RANDOM_SOUNDBOARD_CATEGORY_KEY,
     RANDOM_SOUNDBOARD_GUILD_ICON_HASH,
-    RANDOM_SOUNDBOARD_GUILD_ICON_URL,
+    revokeRandomSoundboardGuildIconUrl,
     soundboardCandidateKey,
     type SoundboardCategory,
 } from "./soundboardPool";
@@ -641,19 +643,39 @@ type SoundboardGuild = NonNullable<
     NonNullable<SoundboardCategory["categoryInfo"]>["guild"]
 >;
 
+/** Stable for the whole session; never reuses a real guild id. */
+let virtualSoundboardGuildId: string | undefined;
+
+function resolveVirtualSoundboardGuildId() {
+    if (
+        virtualSoundboardGuildId
+        && GuildStore.getGuild(virtualSoundboardGuildId) == null
+    ) {
+        return virtualSoundboardGuildId;
+    }
+
+    virtualSoundboardGuildId = pickVirtualSoundboardGuildId(
+        [UserStore.getCurrentUser()?.id],
+        id => GuildStore.getGuild(id) != null,
+    );
+    return virtualSoundboardGuildId;
+}
+
 function createRandomSoundboardGuild(
     baseGuild: SoundboardGuild,
-    currentGuildId: string,
+    virtualGuildId: string,
 ): SoundboardGuild {
     const virtualGuild = Object.create(baseGuild) as SoundboardGuild;
+    const iconUrl = getRandomSoundboardGuildIconUrl();
 
     Object.defineProperties(virtualGuild, {
-        id: { value: currentGuildId, enumerable: true },
+        id: { value: virtualGuildId, enumerable: true },
         name: { value: "FavoriteRandom", enumerable: true },
         acronym: { value: "FR", enumerable: true },
         icon: { value: RANDOM_SOUNDBOARD_GUILD_ICON_HASH, enumerable: true },
         iconHash: { value: RANDOM_SOUNDBOARD_GUILD_ICON_HASH, enumerable: true },
-        getIconURL: { value: () => RANDOM_SOUNDBOARD_GUILD_ICON_URL },
+        getAcronym: { value: () => "FR" },
+        getIconURL: { value: () => iconUrl },
     });
 
     return virtualGuild;
@@ -662,6 +684,7 @@ function createRandomSoundboardGuild(
 function addRandomSoundboardCategory(
     categories: readonly SoundboardCategory[],
 ): readonly SoundboardCategory[] {
+    // Anchor only — never reused as the virtual guild's own id.
     const currentGuildId = soundboardInsertionGuildId();
     if (!currentGuildId) return categories;
 
@@ -674,13 +697,15 @@ function addRandomSoundboardCategory(
 
     if (categoryType == null || !baseGuild) return categories;
 
+    const virtualGuildId = resolveVirtualSoundboardGuildId();
+
     return insertRandomSoundboardCategory(
         categories,
         {
             key: RANDOM_SOUNDBOARD_CATEGORY_KEY,
             categoryInfo: {
                 type: categoryType,
-                guild: createRandomSoundboardGuild(baseGuild, currentGuildId),
+                guild: createRandomSoundboardGuild(baseGuild, virtualGuildId),
                 isNitroLocked: false,
             },
             items: randomSoundboardGridItems,
@@ -2174,5 +2199,7 @@ export default definePlugin({
         candidatePicker.clear();
         kindPicker.clear();
         soundboardPicker.clear();
+        virtualSoundboardGuildId = undefined;
+        revokeRandomSoundboardGuildIconUrl();
     },
 });
