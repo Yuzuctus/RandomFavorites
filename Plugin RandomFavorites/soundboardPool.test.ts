@@ -12,6 +12,8 @@ import {
     insertRandomSoundboardCategory,
     isRandomSoundboardCategory,
     RANDOM_SOUNDBOARD_CATEGORY_KEY,
+    RANDOM_SOUNDBOARD_GUILD_ICON_HASH,
+    RANDOM_SOUNDBOARD_GUILD_ICON_URL,
     soundboardCandidateKey,
 } from "./soundboardPool";
 
@@ -118,5 +120,23 @@ describe("soundboardPool", () => {
             insertRandomSoundboardCategory(categories, randomCategory, "current"),
             categories,
         );
+    });
+
+    it("serves the virtual server icon as a CSP-safe SVG data URI", () => {
+        const prefix = "data:image/svg+xml;base64,";
+
+        assert.ok(RANDOM_SOUNDBOARD_GUILD_ICON_URL.startsWith(prefix));
+
+        const svg = atob(RANDOM_SOUNDBOARD_GUILD_ICON_URL.slice(prefix.length));
+
+        assert.ok(svg.startsWith('<svg xmlns="http://www.w3.org/2000/svg"'));
+        assert.ok(svg.endsWith("</svg>"));
+        assert.equal(svg.match(/<circle /g)?.length, 5);
+        assert.ok(svg.includes('fill="#5865F2"'));
+    });
+
+    it("keeps the fake icon hash truthy but never animated", () => {
+        assert.match(RANDOM_SOUNDBOARD_GUILD_ICON_HASH, /^[0-9a-f]{32}$/);
+        assert.ok(!RANDOM_SOUNDBOARD_GUILD_ICON_HASH.startsWith("a_"));
     });
 });
