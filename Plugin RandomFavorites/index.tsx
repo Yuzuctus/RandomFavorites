@@ -34,7 +34,6 @@ import {
     EmojiStore,
     FluxDispatcher,
     GuildStore,
-    IconUtils,
     LocaleStore,
     Menu,
     MessageActions,
@@ -827,31 +826,6 @@ type SoundboardGuild = NonNullable<
 
 /** Stable for the whole session; never reuses a real guild id. */
 let virtualSoundboardGuildId: string | undefined;
-let originalGuildIconUrl: typeof IconUtils.getGuildIconURL | undefined;
-let randomGuildIconUrlOverride: typeof IconUtils.getGuildIconURL | undefined;
-
-function installRandomSoundboardGuildIconOverride() {
-    if (originalGuildIconUrl) return;
-
-    originalGuildIconUrl = IconUtils.getGuildIconURL;
-    randomGuildIconUrlOverride = data => {
-        if (virtualSoundboardGuildId && data.id === virtualSoundboardGuildId)
-            return getRandomSoundboardGuildIconUrl();
-
-        return originalGuildIconUrl!(data);
-    };
-    IconUtils.getGuildIconURL = randomGuildIconUrlOverride;
-}
-
-function restoreRandomSoundboardGuildIconOverride() {
-    if (!originalGuildIconUrl) return;
-
-    if (IconUtils.getGuildIconURL === randomGuildIconUrlOverride)
-        IconUtils.getGuildIconURL = originalGuildIconUrl;
-
-    originalGuildIconUrl = undefined;
-    randomGuildIconUrlOverride = undefined;
-}
 
 function resolveVirtualSoundboardGuildId() {
     if (
@@ -2717,6 +2691,14 @@ export default definePlugin({
                 replace: "renderRow:(...args)=>$self.renderRandomSoundboardRow(args[0],args[1],args[3],args[4],()=>$1(...args))",
             },
         ],
+    }, {
+        // The native GuildIcon resolves a guild through Discord's CDN helper.
+        // Use the local SVG only for FavoriteRandom's virtual guild.
+        find: "shouldAnimate:E=!0,isLocked:A=!1",
+        replacement: {
+            match: /f=\(0,(\i)\.Iv\)\((\i),32,(\i)&&(\i)\)/,
+            replace: "f=$self.getRandomSoundboardGuildIcon($2,(0,$1.Iv)($2,32,$3&&$4))",
+        },
     }],
 
     chatBarButton: {
@@ -2726,8 +2708,13 @@ export default definePlugin({
 
     addRandomSoundboardCategory,
 
-    start() {
-        installRandomSoundboardGuildIconOverride();
+    getRandomSoundboardGuildIcon(
+        guild: SoundboardGuild,
+        nativeIconUrl: string | undefined,
+    ) {
+        return guild.id === virtualSoundboardGuildId
+            ? getRandomSoundboardGuildIconUrl()
+            : nativeIconUrl;
     },
 
     renderRandomSoundboardRow(
@@ -2749,7 +2736,6 @@ export default definePlugin({
     },
 
     stop() {
-        restoreRandomSoundboardGuildIconOverride();
         activeChannels.clear();
         candidatePicker.clear();
         kindPicker.clear();
