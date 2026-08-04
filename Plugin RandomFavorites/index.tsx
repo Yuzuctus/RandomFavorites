@@ -2690,15 +2690,11 @@ export default definePlugin({
                 match: /renderRow:(\i)(?=,renderSectionHeader:\i,renderSectionFooter:\i,renderSection:\i,renderCategoryList:\i,renderHeaderAccessories:\i,rowHeight:48)/,
                 replace: "renderRow:(...args)=>$self.renderRandomSoundboardRow(args[0],args[1],args[3],args[4],()=>$1(...args))",
             },
+            {
+                match: /children:\(0,(\i)\.jsx\)\((\i)\.A,\{guild:(\i)\.categoryInfo\.guild,isSelected:(\i),isLocked:(\i)\}\)/,
+                replace: "children:$self.renderRandomSoundboardGuildIcon($3.categoryInfo.guild,$4,(0,$1.jsx)($2.A,{guild:$3.categoryInfo.guild,isSelected:$4,isLocked:$5}))",
+            },
         ],
-    }, {
-        // The native GuildIcon resolves a guild through Discord's CDN helper.
-        // Use the local SVG only for FavoriteRandom's virtual guild.
-        find: "shouldAnimate:E=!0,isLocked:A=!1",
-        replacement: {
-            match: /f=\(0,(\i)\.Iv\)\((\i),32,(\i)&&(\i)\)/,
-            replace: "f=$self.getRandomSoundboardGuildIcon($2,(0,$1.Iv)($2,32,$3&&$4))",
-        },
     }],
 
     chatBarButton: {
@@ -2708,13 +2704,22 @@ export default definePlugin({
 
     addRandomSoundboardCategory,
 
-    getRandomSoundboardGuildIcon(
+    renderRandomSoundboardGuildIcon(
         guild: SoundboardGuild,
-        nativeIconUrl: string | undefined,
+        isSelected: boolean,
+        nativeIcon: ReactNode,
     ) {
-        return guild.id === virtualSoundboardGuildId
-            ? getRandomSoundboardGuildIconUrl()
-            : nativeIconUrl;
+        if (guild.id !== virtualSoundboardGuildId) return nativeIcon;
+
+        return (
+            <img
+                alt={guild.name}
+                className={isSelected
+                    ? "vc-rf-soundboard-category-icon vc-rf-soundboard-category-icon-selected"
+                    : "vc-rf-soundboard-category-icon"}
+                src={getRandomSoundboardGuildIconUrl()}
+            />
+        );
     },
 
     renderRandomSoundboardRow(
