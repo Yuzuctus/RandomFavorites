@@ -13,9 +13,7 @@ import {
     findOption,
     sendBotMessage,
 } from "@api/Commands";
-import { addServerListElement, removeServerListElement, ServerListRenderPosition } from "@api/ServerList";
 import { definePluginSettings } from "@api/Settings";
-import ErrorBoundary from "@components/ErrorBoundary";
 import { sendMessage } from "@utils/discord";
 import { Logger } from "@utils/Logger";
 import definePlugin, { OptionType } from "@utils/types";
@@ -52,7 +50,6 @@ import {
     SoundboardStore,
     StickersStore,
     Toasts,
-    Tooltip,
     useEffect,
     useRef,
     UserSettingsActionCreators,
@@ -920,49 +917,6 @@ function addRandomSoundboardCategory(
             items: randomSoundboardGridItems,
         },
         currentGuildId,
-    );
-}
-
-function playRandomSoundboardFromServerList() {
-    const draw = drawRandomSoundboard();
-    if (!draw.sound) {
-        showToast(draw.error ?? localize(
-            "No soundboard sound is available right now.",
-            "Aucun son du soundboard n'est disponible pour le moment.",
-        ), Toasts.Type.FAILURE);
-        return;
-    }
-
-    playSoundboardSelection(draw.sound);
-}
-
-function FavoriteRandomServerListItem() {
-    const tooltip = localize(
-        "FavoriteRandom · Play a random soundboard sound",
-        "FavoriteRandom · Jouer un son aléatoire",
-    );
-
-    return (
-        <Tooltip text={tooltip}>
-            {({ onMouseEnter, onMouseLeave }) => (
-                <div className="vc-rf-server-list-item-container">
-                    <button
-                        aria-label={tooltip}
-                        className="vc-rf-server-list-item"
-                        onClick={playRandomSoundboardFromServerList}
-                        onMouseEnter={onMouseEnter}
-                        onMouseLeave={onMouseLeave}
-                        type="button"
-                    >
-                        <img
-                            alt=""
-                            draggable={false}
-                            src={getRandomSoundboardGuildIconUrl()}
-                        />
-                    </button>
-                </div>
-            )}
-        </Tooltip>
     );
 }
 
@@ -2276,7 +2230,7 @@ function RandomSoundboardActionsRow({
     onItemMouseEnter?: (columnIndex: number) => void;
     rowProps: ComponentProps<"ul">;
 }) {
-    const { className: _nativeRowClassName, ...nativeRowProps } = rowProps;
+    const { className: nativeRowClassName, ...nativeRowProps } = rowProps;
     const actions: Array<{
         action: RandomSoundboardAction;
         label: string;
@@ -2303,12 +2257,12 @@ function RandomSoundboardActionsRow({
     return (
         <ul
             {...nativeRowProps}
-            className="vc-rf-soundboard-grid-row"
+            className={[nativeRowClassName, "vc-rf-soundboard-grid-row"].filter(Boolean).join(" ")}
         >
             {actions.map(({ action, label, tooltip }, index) => {
                 const itemProps = getItemProps?.(index) ?? {};
                 const {
-                    className: _nativeItemClassName,
+                    className: nativeButtonClassName,
                     onMouseEnter,
                     ref,
                     ...nativeButtonProps
@@ -2323,7 +2277,7 @@ function RandomSoundboardActionsRow({
                         <button
                             {...nativeButtonProps}
                             type="button"
-                            className="vc-rf-soundboard-grid-button"
+                            className={[nativeButtonClassName, "vc-rf-soundboard-grid-button"].filter(Boolean).join(" ")}
                             aria-label={tooltip}
                             title={tooltip}
                             onClick={event => {
@@ -2748,9 +2702,6 @@ export default definePlugin({
     tags: ["Chat", "Commands", "Emotes", "Fun", "Media"],
     settings,
     commands,
-    dependencies: ["ServerListAPI"],
-
-    renderFavoriteRandomServerListItem: ErrorBoundary.wrap(FavoriteRandomServerListItem, { noop: true }),
 
     patches: [{
         // This accessibility id belongs to the soundboard picker itself. The
@@ -2777,10 +2728,6 @@ export default definePlugin({
 
     start() {
         installRandomSoundboardGuildIconOverride();
-        addServerListElement(
-            ServerListRenderPosition.In,
-            this.renderFavoriteRandomServerListItem,
-        );
     },
 
     renderRandomSoundboardRow(
@@ -2802,10 +2749,6 @@ export default definePlugin({
     },
 
     stop() {
-        removeServerListElement(
-            ServerListRenderPosition.In,
-            this.renderFavoriteRandomServerListItem,
-        );
         restoreRandomSoundboardGuildIconOverride();
         activeChannels.clear();
         candidatePicker.clear();
