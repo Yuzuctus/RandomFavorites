@@ -74,6 +74,36 @@
     object-fit: contain;
 }
 
+.vc-rf-preview-audio {
+    display: flex;
+    width: 100%;
+    flex-direction: column;
+    align-items: center;
+    gap: 16px;
+}
+
+.vc-rf-preview-audio-icon {
+    display: grid;
+    width: 72px;
+    height: 72px;
+    color: var(--brand-500);
+    font-size: 36px;
+    background: var(--background-secondary);
+    border-radius: 18px;
+    place-items: center;
+}
+
+.vc-rf-preview-audio-controls {
+    width: 100%;
+    min-width: 0;
+}
+
+.vc-rf-preview-audio-error {
+    color: var(--text-danger);
+    font-size: 12px;
+    text-align: center;
+}
+
 .vc-rf-preview-meta {
     display: flex;
     flex-direction: column;
@@ -97,73 +127,132 @@
     text-align: center;
 }
 
-.vc-rf-soundboard-section {
+/* Match Discord soundboard rowHeight (48) so the section does not overflow. */
+.vc-rf-soundboard-grid-row {
     box-sizing: border-box;
-    height: 64px;
-    padding: 6px 8px;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-content: center;
+    gap: 8px;
+    width: 100%;
+    height: 48px;
+    margin: 0;
+    padding: 0 8px;
+    list-style: none;
 }
 
-.vc-rf-soundboard-section-button {
+.vc-rf-soundboard-grid-item {
+    min-width: 0;
+    list-style: none;
+}
+
+.vc-rf-soundboard-grid-row
+> .vc-rf-soundboard-grid-item
+> .vc-rf-soundboard-grid-button {
+    --vc-rf-accent: var(--custom-theme-base-color, var(--brand-500));
+
+    box-sizing: border-box;
     display: flex;
     align-items: center;
+    justify-content: flex-start;
+    gap: 8px;
     width: 100%;
-    height: 52px;
+    height: 36px;
+    min-width: 0;
+    margin: 0;
     padding: 0 10px;
-    color: var(--text-normal);
+    color: var(--text-default, var(--text-normal));
     font: inherit;
-    text-align: left;
     cursor: pointer;
-    background: transparent;
-    border: 1px solid var(--border-subtle);
-    border-radius: 8px;
+
+    /*
+     * Nitro/custom theme tint via --custom-theme-base-color (else brand-500),
+     * plus a currentColor contrast layer so chips stay visible in any popout.
+     */
+    background:
+        linear-gradient(
+            color-mix(in srgb, var(--vc-rf-accent) 12%, transparent),
+            color-mix(in srgb, var(--vc-rf-accent) 12%, transparent)
+        ),
+        color-mix(in srgb, currentColor 8%, transparent) !important;
+    border:
+        1px solid
+        color-mix(in srgb, var(--vc-rf-accent) 32%, currentColor 8%) !important;
+    border-radius: var(--radius-sm, 8px);
+    box-shadow:
+        0 1px 2px rgb(0 0 0 / 12%),
+        inset 0 1px 0 rgb(255 255 255 / 3%);
+    transition:
+        background-color 120ms ease,
+        border-color 120ms ease,
+        box-shadow 120ms ease,
+        transform 120ms ease;
 }
 
-.vc-rf-soundboard-section-button:hover {
-    background: var(--background-modifier-hover);
+.vc-rf-soundboard-grid-row
+> .vc-rf-soundboard-grid-item
+> .vc-rf-soundboard-grid-button:hover {
+    background:
+        linear-gradient(
+            color-mix(in srgb, var(--vc-rf-accent) 20%, transparent),
+            color-mix(in srgb, var(--vc-rf-accent) 20%, transparent)
+        ),
+        color-mix(in srgb, currentColor 12%, transparent) !important;
+    border-color:
+        color-mix(in srgb, var(--vc-rf-accent) 48%, currentColor 10%) !important;
+    box-shadow:
+        0 1px 3px rgb(0 0 0 / 16%),
+        inset 0 1px 0 rgb(255 255 255 / 4%);
 }
 
-.vc-rf-soundboard-section-button:active {
-    background: var(--background-modifier-active);
+.vc-rf-soundboard-grid-row
+> .vc-rf-soundboard-grid-item
+> .vc-rf-soundboard-grid-button:active {
+    background:
+        color-mix(in srgb, var(--vc-rf-accent) 24%, currentColor 12%) !important;
+    transform: scale(.98);
 }
 
-.vc-rf-soundboard-section-button:focus-visible {
-    outline: 2px solid var(--brand-500);
+.vc-rf-soundboard-grid-button:focus-visible {
+    outline:
+        2px solid
+        color-mix(
+            in srgb,
+            var(--vc-rf-accent, var(--brand-500)) 80%,
+            var(--focus-primary, var(--brand-500))
+        );
     outline-offset: -2px;
 }
 
-.vc-rf-soundboard-section-icon {
-    display: grid;
-    flex: 0 0 32px;
-    height: 32px;
-    margin-right: 10px;
-    color: var(--brand-500);
-    background: var(--background-modifier-hover);
-    border-radius: 8px;
-    place-items: center;
-}
-
-.vc-rf-soundboard-section-copy {
+.vc-rf-soundboard-grid-icon {
     display: flex;
-    min-width: 0;
-    flex-direction: column;
-    gap: 2px;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 16px;
+    width: 16px;
+    height: 16px;
+    color: color-mix(in srgb, var(--vc-rf-accent, var(--brand-500)) 75%, var(--interactive-normal));
 }
 
-.vc-rf-soundboard-section-copy strong {
+.vc-rf-soundboard-grid-button:hover .vc-rf-soundboard-grid-icon {
+    color: color-mix(in srgb, var(--vc-rf-accent, var(--brand-500)) 90%, var(--interactive-hover));
+}
+
+.vc-rf-soundboard-grid-label {
+    min-width: 0;
     overflow: hidden;
-    font-size: 14px;
+    color: inherit;
+    font-size: 12px;
+    font-weight: 500;
     line-height: 16px;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
 
-.vc-rf-soundboard-section-copy span {
-    overflow: hidden;
-    color: var(--text-muted);
-    font-size: 11px;
-    line-height: 14px;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+@media (max-width: 360px) {
+    .vc-rf-soundboard-grid-row {
+        grid-template-columns: 1fr;
+    }
 }
 
 .vc-rf-soundboard-preview {

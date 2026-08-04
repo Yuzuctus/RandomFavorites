@@ -19,13 +19,15 @@ import { Logger } from "@utils/Logger";
 import definePlugin, { OptionType } from "@utils/types";
 import {
     Channel,
+    CloudUpload as TCloudUpload,
     Command,
     Emoji,
     RenderModalProps,
     SoundboardSound,
     Sticker,
 } from "@vencord/discord-types";
-import { findByCodeLazy, findByPropsLazy } from "@webpack";
+import { CloudUploadPlatform } from "@vencord/discord-types/enums";
+import { findByCodeLazy, findByPropsLazy, findLazy } from "@webpack";
 import {
     ChannelStore,
     ContextMenuApi,
@@ -53,7 +55,7 @@ import {
     UserStore,
     useState,
 } from "@webpack/common";
-import type { ReactNode } from "react";
+import type { ComponentProps, ReactNode, Ref } from "react";
 
 import { AdaptiveRandomPicker, type RepeatStrength } from "./adaptiveRandom";
 import { formatGifContent } from "./messageFormatting";
@@ -65,14 +67,30 @@ import {
 } from "./previewMedia";
 import { buildSelectionPlan } from "./selectionPlan";
 import {
+    buildSoundboardFileName,
+    createSoundboardSnapshot,
+    DEFAULT_SOUNDBOARD_FILE_NAME,
+    detectSoundboardAudioFormat,
+    getSoundboardAudioMimeType,
+    isReasonableSoundboardBlob,
+    MAX_SOUNDBOARD_AUDIO_BYTES,
+    type SoundboardSnapshot,
+} from "./soundboardAttachment";
+import {
+    collectChatSoundboardPool,
     collectUsableSoundboardSounds,
-    shouldInsertRandomSoundboardSection,
+    getRandomSoundboardGuildIconUrl,
+    insertRandomSoundboardCategory,
+    pickVirtualSoundboardGuildId,
+    RANDOM_SOUNDBOARD_CATEGORY_KEY,
+    RANDOM_SOUNDBOARD_GUILD_ICON_HASH,
+    revokeRandomSoundboardGuildIconUrl,
     soundboardCandidateKey,
     type SoundboardCategory,
 } from "./soundboardPool";
 import { pickUniform } from "./uniformRandom";
 
-type FavoriteKind = "all" | "gif" | "emoji" | "sticker";
+type FavoriteKind = "all" | "gif" | "emoji" | "sticker" | "soundboard";
 type ConcreteFavoriteKind = Exclude<FavoriteKind, "all">;
 type MixMode = "balanced" | "uniform";
 type PoolScope = "favorites" | "all";
@@ -104,15 +122,17 @@ interface FavoriteCandidate {
     key: string;
     label: string;
     content?: string;
-    previewType?: "image" | "lottie";
+    previewType?: "image" | "lottie" | "audio";
     previewUrl?: string;
     previewSources?: PreviewSource[];
     stickerId?: string;
+    soundboard?: SoundboardSnapshot;
 }
 
 interface FavoritePools {
     candidates: Record<ConcreteFavoriteKind, FavoriteCandidate[]>;
     rawCounts: Record<ConcreteFavoriteKind, number>;
+    collectionErrors: Partial<Record<ConcreteFavoriteKind, string>>;
 }
 
 type SendResult =
@@ -139,6 +159,27 @@ interface SoundboardSendPreparation {
     error?: string;
     sound?: SoundboardSound;
 }
+
+interface ChatSoundboardCollection {
+    candidates: FavoriteCandidate[];
+    error?: string;
+    rawCount: number;
+}
+
+type RandomSoundboardAction = "direct" | "preview";
+
+interface RandomSoundboardGridItem {
+    randomFavoritesAction: RandomSoundboardAction;
+    type: number;
+}
+
+interface RandomSoundboardRowDescriptor {
+    item?: RandomSoundboardGridItem;
+}
+
+type RandomSoundboardGridItemProps = Omit<ComponentProps<"button">, "ref"> & {
+    ref?: Ref<HTMLLIElement>;
+};
 
 type CanUseSoundboardSound = (
     user: unknown,
@@ -180,9 +221,15 @@ const getSoundboardSoundUrl = findByCodeLazy(
     "CDN_HOST",
     ".SOUNDBOARD_SOUND(",
 ) as GetSoundboardSoundUrl;
+const CloudUpload: typeof TCloudUpload = findLazy(
+    module => module.prototype?.trackUploadFinished,
+);
 const activeChannels = new Set<string>();
-const concreteKinds: ConcreteFavoriteKind[] = ["gif", "emoji", "sticker"];
-const randomSoundboardSectionHeight = 64;
+const concreteKinds: ConcreteFavoriteKind[] = ["gif", "emoji", "sticker", "soundboard"];
+const randomSoundboardGridItems: RandomSoundboardGridItem[] = [
+    { type: -1, randomFavoritesAction: "direct" },
+    { type: -1, randomFavoritesAction: "preview" },
+];
 
 const candidatePicker = new AdaptiveRandomPicker<FavoriteCandidate>(candidate => candidate.key);
 const kindPicker = new AdaptiveRandomPicker<ConcreteFavoriteKind>(kind => kind);
@@ -209,8 +256,8 @@ const settings = definePluginSettings({
         },
         get description() {
             return localize(
-                "Show the random selection privately and wait for confirmation before sending or playing it.",
-                "Affiche le tirage en privé et attend une confirmation avant de l'envoyer ou de le jouer.",
+                "Show random GIFs, emojis, stickers, and soundboard sounds privately before sending them.",
+                "Affiche les GIFs, emotes, stickers et sons du soundboard aléatoires en privé avant de les envoyer.",
             );
         },
         default: false,
@@ -313,6 +360,33 @@ const settings = definePluginSettings({
             );
         },
         default: true,
+    },
+    sendSoundboardsOnLeftClick: {
+        type: OptionType.BOOLEAN,
+        get displayName() {
+            return localize("Soundboards on left click", "Soundboards au clic gauche");
+        },
+        get description() {
+            return localize(
+                "Send one random accessible soundboard sound as an audio attachment when left-clicking the chat bar button.",
+                "Envoie un son de soundboard aléatoire accessible sous forme de pièce jointe audio avec le clic gauche sur le bouton de la barre de chat.",
+            );
+        },
+        default: false,
+    },
+    soundboardFileName: {
+        type: OptionType.STRING,
+        get displayName() {
+            return localize("Soundboard attachment name", "Nom du fichier soundboard");
+        },
+        get description() {
+            return localize(
+                "Base filename used for random soundboard audio attachments. The correct extension is added automatically.",
+                "Nom de base utilisé pour les pièces jointes audio du soundboard aléatoire. L’extension correcte est ajoutée automatiquement.",
+            );
+        },
+        default: DEFAULT_SOUNDBOARD_FILE_NAME,
+        placeholder: DEFAULT_SOUNDBOARD_FILE_NAME,
     },
     mixMode: {
         type: OptionType.SELECT,
@@ -508,6 +582,88 @@ function collectSoundboardCandidates(channel: Channel) {
     );
 }
 
+function soundboardStoreLoadingError() {
+    return localize(
+        "Discord has not loaded the soundboard yet. Open the Soundboard picker once or wait for it to finish loading, then try again.",
+        "Discord n'a pas encore chargé le soundboard. Ouvre une fois le sélecteur Soundboard ou attends la fin du chargement, puis réessaie.",
+    );
+}
+
+function soundboardAttachmentPermissionError() {
+    return localize(
+        "Soundboard audio cannot be sent in this channel because you need permission to send messages and attach files.",
+        "L'audio du soundboard ne peut pas être envoyé dans ce salon : il faut pouvoir envoyer des messages et joindre des fichiers.",
+    );
+}
+
+function soundboardUnavailableError() {
+    return localize(
+        "No accessible soundboard sounds are loaded. Open the Soundboard picker once, then try again.",
+        "Aucun son de soundboard accessible n'est chargé. Ouvre une fois le sélecteur Soundboard, puis réessaie.",
+    );
+}
+
+function resolveSoundboardPreviewUrl(sound: Pick<SoundboardSnapshot, "soundId">) {
+    try {
+        const url = getSoundboardSoundUrl(sound.soundId);
+        return typeof url === "string" && url.length > 0 ? url : undefined;
+    } catch (error) {
+        logger.error("Failed to resolve a soundboard preview URL", error);
+        return undefined;
+    }
+}
+
+function createChatSoundboardCandidate(sound: SoundboardSound): FavoriteCandidate {
+    const snapshot = createSoundboardSnapshot(sound);
+    const key = soundboardCandidateKey(snapshot);
+
+    return {
+        kind: "soundboard",
+        key,
+        label: snapshot.name,
+        previewType: "audio",
+        previewUrl: resolveSoundboardPreviewUrl(snapshot),
+        soundboard: snapshot,
+    };
+}
+
+/** Collects only store-backed sounds for chat attachments, not vocal playback. */
+function collectChatSoundboardCandidates(channel: Channel): ChatSoundboardCollection {
+    let soundGroups: Iterable<readonly SoundboardSound[]>;
+
+    try {
+        soundGroups = SoundboardStore.getSounds().values();
+    } catch (error) {
+        logger.error("Failed to read Discord's loaded soundboard sounds", error);
+        return {
+            candidates: [],
+            error: soundboardStoreLoadingError(),
+            rawCount: 0,
+        };
+    }
+
+    const canAttach = canAttachFiles(channel);
+    const pool = collectChatSoundboardPool(soundGroups, canAttach);
+
+    if (!canAttach) {
+        return {
+            candidates: [],
+            error: soundboardAttachmentPermissionError(),
+            rawCount: pool.rawCount,
+        };
+    }
+
+    return {
+        candidates: pool.candidates.map(createChatSoundboardCandidate),
+        error: pool.rawCount === 0
+            ? SoundboardStore.isFetchingAnySounds()
+                ? soundboardStoreLoadingError()
+                : soundboardUnavailableError()
+            : undefined,
+        rawCount: pool.rawCount,
+    };
+}
+
 function drawRandomSoundboard(): SoundboardDrawResult {
     const channel = getConnectedVoiceChannel();
     const channelError = soundboardChannelError(channel);
@@ -616,12 +772,88 @@ function soundboardInsertionGuildId() {
         ?? undefined;
 }
 
+type SoundboardGuild = NonNullable<
+    NonNullable<SoundboardCategory["categoryInfo"]>["guild"]
+>;
+
+/** Stable for the whole session; never reuses a real guild id. */
+let virtualSoundboardGuildId: string | undefined;
+
+function resolveVirtualSoundboardGuildId() {
+    if (
+        virtualSoundboardGuildId
+        && GuildStore.getGuild(virtualSoundboardGuildId) == null
+    ) {
+        return virtualSoundboardGuildId;
+    }
+
+    virtualSoundboardGuildId = pickVirtualSoundboardGuildId(
+        [UserStore.getCurrentUser()?.id],
+        id => GuildStore.getGuild(id) != null,
+    );
+    return virtualSoundboardGuildId;
+}
+
+function createRandomSoundboardGuild(
+    baseGuild: SoundboardGuild,
+    virtualGuildId: string,
+): SoundboardGuild {
+    const virtualGuild = Object.create(baseGuild) as SoundboardGuild;
+    const iconUrl = getRandomSoundboardGuildIconUrl();
+
+    Object.defineProperties(virtualGuild, {
+        id: { value: virtualGuildId, enumerable: true },
+        name: { value: "FavoriteRandom", enumerable: true },
+        acronym: { value: "FR", enumerable: true },
+        icon: { value: RANDOM_SOUNDBOARD_GUILD_ICON_HASH, enumerable: true },
+        iconHash: { value: RANDOM_SOUNDBOARD_GUILD_ICON_HASH, enumerable: true },
+        getAcronym: { value: () => "FR" },
+        getIconURL: { value: () => iconUrl },
+    });
+
+    return virtualGuild;
+}
+
+function addRandomSoundboardCategory(
+    categories: readonly SoundboardCategory[],
+): readonly SoundboardCategory[] {
+    // Anchor only — never reused as the virtual guild's own id.
+    const currentGuildId = soundboardInsertionGuildId();
+    if (!currentGuildId) return categories;
+
+    const guildCategory = categories.find(
+        category => category.categoryInfo?.guild?.id === currentGuildId,
+    ) ?? categories.find(category => category.categoryInfo?.guild != null);
+    const categoryType = guildCategory?.categoryInfo?.type;
+    const baseGuild = GuildStore.getGuild(currentGuildId)
+        ?? guildCategory?.categoryInfo?.guild;
+
+    if (categoryType == null || !baseGuild) return categories;
+
+    const virtualGuildId = resolveVirtualSoundboardGuildId();
+
+    return insertRandomSoundboardCategory(
+        categories,
+        {
+            key: RANDOM_SOUNDBOARD_CATEGORY_KEY,
+            categoryInfo: {
+                type: categoryType,
+                guild: createRandomSoundboardGuild(baseGuild, virtualGuildId),
+                isNitroLocked: false,
+            },
+            items: randomSoundboardGridItems,
+        },
+        currentGuildId,
+    );
+}
+
 function kindLabel(kind: FavoriteKind) {
     const labels: Record<FavoriteKind, [string, string]> = {
-        all: ["all favorites", "tous les favoris"],
+        all: ["random items", "éléments aléatoires"],
         gif: ["favorite GIFs", "GIF favoris"],
         emoji: ["favorite emojis", "emotes favorites"],
         sticker: ["favorite stickers", "stickers favoris"],
+        soundboard: ["soundboard sounds", "sons du soundboard"],
     };
 
     return localize(...labels[kind]);
@@ -632,19 +864,22 @@ function shortKindLabel(kind: ConcreteFavoriteKind) {
         gif: ["GIF", "GIF"],
         emoji: ["emoji", "emote"],
         sticker: ["sticker", "sticker"],
+        soundboard: ["soundboard", "son"],
     };
 
     return localize(...labels[kind]);
 }
 
-function selectedLeftClickKinds() {
+function selectedLeftClickKinds(channel?: Channel) {
     const enabled: Record<ConcreteFavoriteKind, boolean> = {
         gif: settings.store.sendGifsOnLeftClick,
         emoji: settings.store.sendEmojisOnLeftClick,
         sticker: settings.store.sendStickersOnLeftClick,
+        soundboard: settings.store.sendSoundboardsOnLeftClick,
     };
 
-    return concreteKinds.filter(kind => enabled[kind]);
+    return concreteKinds.filter(kind => enabled[kind]
+        && (kind !== "soundboard" || !channel || canAttachFiles(channel)));
 }
 
 function selectedKindsLabel(kinds: readonly ConcreteFavoriteKind[]) {
@@ -660,6 +895,9 @@ function selectedPoolLabel(kind: FavoriteKind) {
 
     if (kind === "sticker" && settings.store.stickerPool === "all")
         return localize("usable stickers", "stickers utilisables");
+
+    if (kind === "soundboard")
+        return localize("accessible soundboard sounds", "sons du soundboard accessibles");
 
     if (
         kind === "all"
@@ -693,6 +931,13 @@ function canSendMessages(channel: Channel) {
         : PermissionsBits.SEND_MESSAGES;
 
     return PermissionStore.can(permission, channel);
+}
+
+function canAttachFiles(channel: Channel) {
+    if (channel.isPrivate()) return true;
+
+    return canSendMessages(channel)
+        && PermissionStore.can(PermissionsBits.ATTACH_FILES, channel);
 }
 
 function collectGifs(frecency: FrecencySettings): {
@@ -878,24 +1123,51 @@ function collectStickers(frecency: FrecencySettings, channel: Channel): {
 
 function emptyPools(): FavoritePools {
     return {
-        candidates: { gif: [], emoji: [], sticker: [] },
-        rawCounts: { gif: 0, emoji: 0, sticker: 0 },
+        candidates: { gif: [], emoji: [], sticker: [], soundboard: [] },
+        rawCounts: { gif: 0, emoji: 0, sticker: 0, soundboard: 0 },
+        collectionErrors: {},
     };
 }
 
 function collectFavoritePools(kind: FavoriteKind, channel: Channel): FavoritePools | undefined {
     const frecency = getFrecencySettings();
-    if (!frecency) return undefined;
-
     const pools = emptyPools();
     const requestedKinds = kind === "all" ? concreteKinds : [kind];
 
+    if (!frecency) {
+        for (const requestedKind of requestedKinds) {
+            if (requestedKind === "soundboard") {
+                const result = collectChatSoundboardCandidates(channel);
+                pools.candidates[requestedKind] = result.candidates;
+                pools.rawCounts[requestedKind] = result.rawCount;
+                if (result.error)
+                    pools.collectionErrors[requestedKind] = result.error;
+            } else {
+                pools.collectionErrors[requestedKind] = localize(
+                    "Discord has not loaded your synced favorites yet. Open an expression picker once, then try again.",
+                    "Discord n'a pas encore chargé tes favoris synchronisés. Ouvre une fois un sélecteur d'expressions, puis réessaie.",
+                );
+            }
+        }
+
+        return pools;
+    }
+
     for (const requestedKind of requestedKinds) {
+        if (requestedKind === "soundboard") {
+            const result = collectChatSoundboardCandidates(channel);
+            pools.candidates[requestedKind] = result.candidates;
+            pools.rawCounts[requestedKind] = result.rawCount;
+            if (result.error)
+                pools.collectionErrors[requestedKind] = result.error;
+            continue;
+        }
+
         const result = requestedKind === "gif"
-            ? collectGifs(frecency)
+            ? collectGifs(frecency!)
             : requestedKind === "emoji"
-                ? collectEmojis(frecency, channel)
-                : collectStickers(frecency, channel);
+                ? collectEmojis(frecency!, channel)
+                : collectStickers(frecency!, channel);
 
         pools.candidates[requestedKind] = result.candidates;
         pools.rawCounts[requestedKind] = result.rawCount;
@@ -958,12 +1230,21 @@ function pickCandidate(kind: FavoriteKind, pools: FavoritePools): FavoriteCandid
 
 function noCandidateMessage(kind: FavoriteKind, pools: FavoritePools) {
     const requestedKinds = kind === "all" ? concreteKinds : [kind];
+    const collectionErrors = requestedKinds
+        .map(requestedKind => pools.collectionErrors[requestedKind])
+        .filter((error): error is string => error != null);
+    if (collectionErrors.length > 0)
+        return Array.from(new Set(collectionErrors)).join("\n");
+
     const rawCount = requestedKinds.reduce(
         (total, requestedKind) => total + pools.rawCounts[requestedKind],
         0,
     );
 
     if (rawCount === 0) {
+        if (kind === "soundboard")
+            return soundboardStoreLoadingError();
+
         return localize(
             `No ${selectedPoolLabel(kind)} were found. Add some favorites in Discord's expression picker or change the pool settings.`,
             `Aucun ${selectedPoolLabel(kind)} trouvé. Ajoute des favoris dans le sélecteur d'expressions de Discord ou modifie les listes dans les réglages.`,
@@ -980,6 +1261,12 @@ function noCandidateMessageForKinds(
     kinds: readonly ConcreteFavoriteKind[],
     pools: FavoritePools,
 ) {
+    const collectionErrors = kinds
+        .map(kind => pools.collectionErrors[kind])
+        .filter((error): error is string => error != null);
+    if (collectionErrors.length > 0)
+        return Array.from(new Set(collectionErrors)).join("\n");
+
     const rawCount = kinds.reduce(
         (total, kind) => total + pools.rawCounts[kind],
         0,
@@ -1005,7 +1292,171 @@ function buildReplyOptions(channelId: string) {
     ) ?? {};
 }
 
+class SoundboardAttachmentError extends Error { }
+
+function soundboardAttachmentError(english: string, french: string) {
+    return new SoundboardAttachmentError(localize(english, french));
+}
+
+function revalidateChatSoundboardCandidate(
+    candidate: FavoriteCandidate,
+    channel: Channel,
+) {
+    const snapshot = candidate.soundboard;
+    if (!snapshot) {
+        throw soundboardAttachmentError(
+            "This soundboard candidate is incomplete. Draw another sound before sending.",
+            "Ce candidat soundboard est incomplet. Relance le tirage avant l'envoi.",
+        );
+    }
+
+    if (!canAttachFiles(channel))
+        throw soundboardAttachmentError(
+            "Soundboard audio cannot be sent in this channel because you need permission to send messages and attach files.",
+            "L'audio du soundboard ne peut pas être envoyé dans ce salon : il faut pouvoir envoyer des messages et joindre des fichiers.",
+        );
+
+    try {
+        const currentSound = SoundboardStore.getSound(snapshot.guildId, snapshot.soundId);
+        if (!currentSound || currentSound.available === false)
+            throw soundboardAttachmentError(
+                "This sound is no longer available in Discord. Draw another one before sending.",
+                "Ce son n'est plus disponible dans Discord. Relance le tirage avant l'envoi.",
+            );
+    } catch (error) {
+        if (error instanceof SoundboardAttachmentError) throw error;
+
+        logger.error("Failed to revalidate a chat soundboard sound", error);
+        throw soundboardAttachmentError(
+            "Discord could not validate this soundboard sound. Open the Soundboard picker once, then try again.",
+            "Discord n'a pas pu valider ce son du soundboard. Ouvre une fois le sélecteur Soundboard, puis réessaie.",
+        );
+    }
+
+    return snapshot;
+}
+
+async function downloadSoundboardAttachment(
+    candidate: FavoriteCandidate,
+    channel: Channel,
+): Promise<File> {
+    const snapshot = revalidateChatSoundboardCandidate(candidate, channel);
+    const url = resolveSoundboardPreviewUrl(snapshot);
+    if (!url) {
+        throw soundboardAttachmentError(
+            "Discord did not provide a soundboard CDN URL. Draw another sound before sending.",
+            "Discord n'a pas fourni d'URL CDN pour ce son. Relance le tirage avant l'envoi.",
+        );
+    }
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15_000);
+
+    try {
+        const response = await fetch(url, { signal: controller.signal });
+        if (!response.ok) {
+            logger.error("Soundboard CDN download returned an HTTP error", {
+                status: response.status,
+            });
+            throw soundboardAttachmentError(
+                "Discord could not download this soundboard sound. Draw another one and try again.",
+                "Discord n'a pas pu télécharger ce son du soundboard. Relance le tirage et réessaie.",
+            );
+        }
+
+        const contentLength = Number(response.headers.get("content-length"));
+        if (Number.isFinite(contentLength) && contentLength > MAX_SOUNDBOARD_AUDIO_BYTES) {
+            logger.error("Soundboard CDN response exceeded the local size limit", {
+                contentLength,
+            });
+            throw soundboardAttachmentError(
+                "This soundboard file is too large to send safely.",
+                "Ce fichier soundboard est trop volumineux pour être envoyé en toute sécurité.",
+            );
+        }
+
+        const blob = await response.blob();
+        if (!isReasonableSoundboardBlob(blob)) {
+            logger.error("Soundboard CDN response has an invalid size", { size: blob.size });
+            throw soundboardAttachmentError(
+                "This soundboard file has an invalid size and was not sent.",
+                "La taille de ce fichier soundboard est invalide : il n'a pas été envoyé.",
+            );
+        }
+
+        const bytes = new Uint8Array(await blob.arrayBuffer());
+        const format = detectSoundboardAudioFormat(
+            response.headers.get("content-type") || blob.type,
+            bytes,
+        );
+        if (!format) {
+            logger.error("Soundboard CDN response has an unsupported audio format", {
+                contentType: response.headers.get("content-type") || blob.type || "missing",
+                size: bytes.byteLength,
+            });
+            throw soundboardAttachmentError(
+                "Discord returned an unknown audio format. The sound was not sent.",
+                "Discord a retourné un format audio inconnu. Le son n'a pas été envoyé.",
+            );
+        }
+
+        const mimeType = getSoundboardAudioMimeType(format);
+        return new File(
+            [bytes],
+            buildSoundboardFileName(settings.store.soundboardFileName, format),
+            { type: mimeType },
+        );
+    } catch (error) {
+        if (error instanceof SoundboardAttachmentError) throw error;
+
+        logger.error("Failed to download a soundboard audio attachment", {
+            aborted: controller.signal.aborted,
+            error: error instanceof Error ? error.name : "unknown",
+        });
+        throw soundboardAttachmentError(
+            controller.signal.aborted
+                ? "The soundboard download timed out. Try again."
+                : "The soundboard sound could not be downloaded. Try again.",
+            controller.signal.aborted
+                ? "Le téléchargement du soundboard a expiré. Réessaie."
+                : "Le son du soundboard n'a pas pu être téléchargé. Réessaie.",
+        );
+    } finally {
+        clearTimeout(timeout);
+    }
+}
+
+async function sendSoundboardCandidate(candidate: FavoriteCandidate, channel: Channel) {
+    const file = await downloadSoundboardAttachment(candidate, channel);
+    const upload = new CloudUpload({
+        file,
+        isThumbnail: false,
+        platform: CloudUploadPlatform.WEB,
+    }, channel.id);
+
+    // MessageActions owns Discord's upload queue, limits, slowmode and reply handling.
+    await sendMessage(
+        channel.id,
+        { content: "" },
+        false,
+        {
+            ...buildReplyOptions(channel.id),
+            attachmentsToUpload: [upload],
+        },
+    );
+
+    FluxDispatcher.dispatch({
+        type: "DELETE_PENDING_REPLY",
+        channelId: channel.id,
+    });
+}
+
 async function sendCandidate(candidate: FavoriteCandidate, channel: Channel) {
+    if (candidate.kind === "soundboard") {
+        await sendSoundboardCandidate(candidate, channel);
+        return;
+    }
+
     const options = buildReplyOptions(channel.id);
     const rawContent = candidate.content ?? "";
     const content = candidate.kind === "gif"
@@ -1129,10 +1580,12 @@ async function sendPreparedFavorites(
                     `Failed to send a random ${candidate.kind} from the selected batch`,
                     error,
                 );
-                errors.push(localize(
-                    `Discord refused to send the random ${shortKindLabel(candidate.kind)}. It may have been deleted or become unavailable.`,
-                    `Discord a refusé d'envoyer ${shortKindLabel(candidate.kind) === "emote" ? "l'emote" : `le ${shortKindLabel(candidate.kind)}`} aléatoire. L'élément a peut-être été supprimé ou n'est plus disponible.`,
-                ));
+                errors.push(error instanceof SoundboardAttachmentError
+                    ? error.message
+                    : localize(
+                        `Discord refused to send the random ${shortKindLabel(candidate.kind)}. It may have been deleted or become unavailable.`,
+                        `Discord a refusé d'envoyer ${shortKindLabel(candidate.kind) === "emote" ? "l'emote" : `le ${shortKindLabel(candidate.kind)}`} aléatoire. L'élément a peut-être été supprimé ou n'est plus disponible.`,
+                    ));
             }
         }
 
@@ -1182,6 +1635,7 @@ function previewKindLabel(kind: ConcreteFavoriteKind) {
         gif: ["Random GIF", "GIF aléatoire"],
         emoji: ["Random emoji", "Emote aléatoire"],
         sticker: ["Random sticker", "Sticker aléatoire"],
+        soundboard: ["Random soundboard sound", "Son aléatoire"],
     };
 
     return localize(...labels[kind]);
@@ -1214,7 +1668,67 @@ function LottieStickerPreview({ label, url }: { label: string; url: string; }) {
     );
 }
 
+function SoundboardAudioPreview({ candidate }: { candidate: FavoriteCandidate; }) {
+    const audioRef = useRef<HTMLAudioElement>(null);
+    const [previewUnavailable, setPreviewUnavailable] = useState(false);
+    const snapshot = candidate.soundboard;
+    const soundUrl = snapshot ? candidate.previewUrl ?? resolveSoundboardPreviewUrl(snapshot) : undefined;
+
+    useEffect(() => {
+        setPreviewUnavailable(false);
+
+        const audio = audioRef.current;
+        if (!audio || !soundUrl || !snapshot) return;
+
+        audio.volume = snapshot.volume;
+        void audio.play().catch(() => {
+            // Autoplay can be denied without making the controls unusable.
+        });
+
+        return () => pauseSoundboardPreview(audio);
+    }, [candidate.key, snapshot?.volume, soundUrl]);
+
+    if (!snapshot || !soundUrl) {
+        return (
+            <div className="vc-rf-preview-fallback">
+                <RandomFavoritesIcon height={44} width={44} />
+                <span>{localize("Audio preview unavailable", "Aperçu audio indisponible")}</span>
+            </div>
+        );
+    }
+
+    return (
+        <div className="vc-rf-preview-audio">
+            <span className="vc-rf-preview-audio-icon" aria-hidden="true">
+                {snapshot.emojiName || "🔊"}
+            </span>
+            <audio
+                key={candidate.key}
+                ref={audioRef}
+                className="vc-rf-preview-audio-controls"
+                src={soundUrl}
+                controls
+                autoPlay
+                preload="metadata"
+                aria-label={candidate.label}
+                onError={() => setPreviewUnavailable(true)}
+            />
+            {previewUnavailable && (
+                <span className="vc-rf-preview-audio-error">
+                    {localize(
+                        "The local audio preview is unavailable.",
+                        "L'aperçu audio local est indisponible.",
+                    )}
+                </span>
+            )}
+        </div>
+    );
+}
+
 function FavoriteMediaPreview({ candidate }: { candidate: FavoriteCandidate; }) {
+    if (candidate.kind === "soundboard")
+        return <SoundboardAudioPreview candidate={candidate} />;
+
     const fallbackSource = candidate.previewUrl
         ? [{ type: candidate.previewType ?? "image", url: candidate.previewUrl } as const]
         : [];
@@ -1270,6 +1784,10 @@ function FavoriteMediaPreview({ candidate }: { candidate: FavoriteCandidate; }) 
 }
 
 function FavoritePreviewCard({ candidate }: { candidate: FavoriteCandidate; }) {
+    const sourceName = candidate.soundboard
+        ? soundboardSourceName(candidate.soundboard.guildId)
+        : undefined;
+
     return (
         <article className="vc-rf-preview-card">
             <div className="vc-rf-preview-media">
@@ -1278,6 +1796,7 @@ function FavoritePreviewCard({ candidate }: { candidate: FavoriteCandidate; }) {
             <div className="vc-rf-preview-meta">
                 <strong>{previewKindLabel(candidate.kind)}</strong>
                 <span title={candidate.label}>{candidate.label}</span>
+                {sourceName && <span title={sourceName}>{sourceName}</span>}
             </div>
         </article>
     );
@@ -1397,11 +1916,11 @@ function pauseSoundboardPreview(audio?: HTMLAudioElement | null) {
     audio.currentTime = 0;
 }
 
-function soundboardSourceName(sound: SoundboardSound) {
-    if (sound.guildId === "0")
+function soundboardSourceName(guildId: string | null | undefined) {
+    if (!guildId || guildId === "0")
         return localize("Discord sounds", "Sons Discord");
 
-    return GuildStore.getGuild(sound.guildId)?.name
+    return GuildStore.getGuild(guildId)?.name
         ?? localize("Unknown server", "Serveur inconnu");
 }
 
@@ -1518,7 +2037,7 @@ function RandomSoundboardPreviewModal({
                     </span>
                     <div>
                         <strong>{sound.name}</strong>
-                        <span>{soundboardSourceName(sound)}</span>
+                        <span>{soundboardSourceName(sound.guildId)}</span>
                     </div>
                 </div>
                 {soundUrl ? (
@@ -1559,7 +2078,7 @@ function RandomSoundboardPreviewModal({
     );
 }
 
-function runRandomSoundboard() {
+function runRandomSoundboard(action: RandomSoundboardAction) {
     const draw = drawRandomSoundboard();
     if (draw.error || !draw.sound) {
         showToast(draw.error ?? localize(
@@ -1570,7 +2089,7 @@ function runRandomSoundboard() {
     }
 
     const initialSound = draw.sound;
-    if (!settings.store.previewBeforeSend) {
+    if (action === "direct") {
         playSoundboardSelection(initialSound);
         return;
     }
@@ -1583,34 +2102,131 @@ function runRandomSoundboard() {
     ));
 }
 
-function RandomSoundboardSection() {
-    const { previewBeforeSend } = settings.use(["previewBeforeSend"]);
+function RandomSoundboardActionIcon({
+    action,
+}: {
+    action: RandomSoundboardAction;
+}) {
+    if (action === "direct") {
+        return (
+            <svg
+                aria-hidden="true"
+                viewBox="0 0 24 24"
+                width="16"
+                height="16"
+                fill="currentColor"
+            >
+                <path d="M8 5.4v13.2c0 .8.9 1.3 1.6.8l9-6.6a1 1 0 0 0 0-1.6l-9-6.6A1 1 0 0 0 8 5.4Z" />
+            </svg>
+        );
+    }
 
     return (
-        <div className="vc-rf-soundboard-section">
-            <button
-                type="button"
-                className="vc-rf-soundboard-section-button"
-                onClick={runRandomSoundboard}
-            >
-                <span className="vc-rf-soundboard-section-icon">
-                    <RandomFavoritesIcon height={18} width={18} />
-                </span>
-                <span className="vc-rf-soundboard-section-copy">
-                    <strong>{localize("Random soundboard", "Soundboard aléatoire")}</strong>
-                    <span>{previewBeforeSend
-                        ? localize(
-                            "Listen privately before playing",
-                            "Écouter en privé avant de jouer",
-                        )
-                        : localize(
-                            "Play immediately in voice",
-                            "Jouer immédiatement dans le vocal",
-                        )}
-                    </span>
-                </span>
-            </button>
-        </div>
+        <svg
+            aria-hidden="true"
+            viewBox="0 0 24 24"
+            width="16"
+            height="16"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.8"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+        >
+            <path d="M12 3 5.5 6v5.2c0 4.2 2.5 7.5 6.5 9.8 4-2.3 6.5-5.6 6.5-9.8V6L12 3Z" />
+            <path d="M8.5 12s1.3-2 3.5-2 3.5 2 3.5 2-1.3 2-3.5 2-3.5-2-3.5-2Z" />
+            <circle cx="12" cy="12" r=".8" fill="currentColor" stroke="none" />
+        </svg>
+    );
+}
+
+function RandomSoundboardActionsRow({
+    getItemProps,
+    onItemMouseEnter,
+    rowProps,
+}: {
+    getItemProps?: (columnIndex: number) => RandomSoundboardGridItemProps;
+    onItemMouseEnter?: (columnIndex: number) => void;
+    rowProps: ComponentProps<"ul">;
+}) {
+    const { className: _nativeRowClassName, ...nativeRowProps } = rowProps;
+    const actions: Array<{
+        action: RandomSoundboardAction;
+        label: string;
+        tooltip: string;
+    }> = [
+        {
+            action: "direct",
+            label: localize("Play directly", "Lecture directe"),
+            tooltip: localize(
+                "Draw a random sound and play it immediately in voice",
+                "Tirer un son aléatoire et le jouer immédiatement dans le vocal",
+            ),
+        },
+        {
+            action: "preview",
+            label: localize("Safe preview", "Aperçu sécurisé"),
+            tooltip: localize(
+                "Draw a random sound and listen privately before confirming",
+                "Tirer un son aléatoire et l'écouter en privé avant de confirmer",
+            ),
+        },
+    ];
+
+    return (
+        <ul
+            {...nativeRowProps}
+            className="vc-rf-soundboard-grid-row"
+        >
+            {actions.map(({ action, label, tooltip }, index) => {
+                const itemProps = getItemProps?.(index) ?? {};
+                const {
+                    className: _nativeItemClassName,
+                    onMouseEnter,
+                    ref,
+                    ...nativeButtonProps
+                } = itemProps;
+
+                return (
+                    <li
+                        className="vc-rf-soundboard-grid-item"
+                        key={action}
+                        ref={ref}
+                    >
+                        <button
+                            {...nativeButtonProps}
+                            type="button"
+                            className="vc-rf-soundboard-grid-button"
+                            aria-label={tooltip}
+                            title={tooltip}
+                            onClick={event => {
+                                event.stopPropagation();
+                                runRandomSoundboard(action);
+                            }}
+                            onMouseEnter={event => {
+                                onMouseEnter?.(event);
+                                onItemMouseEnter?.(index);
+                            }}
+                        >
+                            <span className="vc-rf-soundboard-grid-icon" aria-hidden="true">
+                                <RandomSoundboardActionIcon action={action} />
+                            </span>
+                            <span className="vc-rf-soundboard-grid-label">
+                                {label}
+                            </span>
+                        </button>
+                    </li>
+                );
+            })}
+        </ul>
+    );
+}
+
+function isRandomSoundboardRow(
+    descriptors: readonly RandomSoundboardRowDescriptor[],
+) {
+    return descriptors.some(descriptor =>
+        descriptor.item?.randomFavoritesAction != null,
     );
 }
 
@@ -1626,13 +2242,22 @@ async function runFromCommand(kind: FavoriteKind, channel: Channel) {
 }
 
 async function runSelectedFromButton(channel: Channel) {
-    const kinds = selectedLeftClickKinds();
+    const kinds = selectedLeftClickKinds(channel);
     const { sendEachSelectedType } = settings.store;
+    const selectionError = settings.store.sendSoundboardsOnLeftClick && !canAttachFiles(channel)
+        ? soundboardAttachmentPermissionError()
+        : undefined;
+    const draw = () => {
+        const result = drawSelectedFavorites(kinds, sendEachSelectedType, channel);
+        if (selectionError)
+            result.errors.unshift(selectionError);
+        return result;
+    };
 
     if (settings.store.previewBeforeSend) {
         openFavoritePreview(
             channel,
-            () => drawSelectedFavorites(kinds, sendEachSelectedType, channel),
+            draw,
         );
         return;
     }
@@ -1642,6 +2267,8 @@ async function runSelectedFromButton(channel: Channel) {
         sendEachSelectedType,
         channel,
     );
+    if (selectionError)
+        result.errors.unshift(selectionError);
     if (result.errors.length > 0)
         showToast(result.errors.join("\n"), Toasts.Type.FAILURE);
 }
@@ -1660,12 +2287,13 @@ function favoriteStats(channel: Channel) {
 
     return [
         localize(
-            "**Random Favorites — usable / detected**",
-            "**Random Favorites — utilisables / détectés**",
+            "**Random items — usable / detected**",
+            "**Éléments aléatoires — utilisables / détectés**",
         ),
         line("gif", "🖼️"),
         line("emoji", "😄"),
         line("sticker", "🏷️"),
+        line("soundboard", "🔊"),
     ].join("\n");
 }
 
@@ -1711,6 +2339,7 @@ function RandomFavoritesMenu({ channel }: { channel: Channel; }) {
         "sendGifsOnLeftClick",
         "sendEmojisOnLeftClick",
         "sendStickersOnLeftClick",
+        "sendSoundboardsOnLeftClick",
     ]);
 
     return (
@@ -1812,6 +2441,16 @@ function RandomFavoritesMenu({ channel }: { channel: Channel; }) {
                         settings.store.sendStickersOnLeftClick = !selection.sendStickersOnLeftClick
                     }
                 />
+                <Menu.MenuCheckboxItem
+                    id="random-favorites-select-soundboard"
+                    label="Soundboard"
+                    checked={selection.sendSoundboardsOnLeftClick}
+                    disabled={!canAttachFiles(channel)}
+                    dontCloseOnAction
+                    action={() =>
+                        settings.store.sendSoundboardsOnLeftClick = !selection.sendSoundboardsOnLeftClick
+                    }
+                />
             </Menu.MenuGroup>
             <Menu.MenuSeparator />
             <Menu.MenuItem
@@ -1836,6 +2475,7 @@ const RandomFavoritesButton: ChatBarButtonFactory = ({
         "sendGifsOnLeftClick",
         "sendEmojisOnLeftClick",
         "sendStickersOnLeftClick",
+        "sendSoundboardsOnLeftClick",
     ]);
 
     if (
@@ -1845,7 +2485,7 @@ const RandomFavoritesButton: ChatBarButtonFactory = ({
         || !canSendMessages(channel)
     ) return null;
 
-    const selectedKinds = selectedLeftClickKinds();
+    const selectedKinds = selectedLeftClickKinds(channel);
     const selectionLabel = selectedKindsLabel(selectedKinds);
     const actionTooltip = pluginSettings.sendEachSelectedType
         ? localize(
@@ -1913,6 +2553,7 @@ const commands: Command[] = [
                 { name: "GIF", label: "GIF", value: "gif" },
                 { name: "Emoji", label: "Emoji", value: "emoji" },
                 { name: "Sticker", label: "Sticker", value: "sticker" },
+                { name: "Soundboard", label: "Soundboard", value: "soundboard" },
             ],
         }],
         execute: async (args, { channel }) => {
@@ -1934,6 +2575,11 @@ const commands: Command[] = [
         "random-sticker",
         "Send a random sticker from your Discord favorites",
         "sticker",
+    ),
+    makeFixedKindCommand(
+        "random-soundboard",
+        "Send a random accessible soundboard sound as an audio attachment",
+        "soundboard",
     ),
     {
         name: "random-favorite-stats",
@@ -1959,12 +2605,12 @@ export default definePlugin({
         find: "soundboard_guild_",
         replacement: [
             {
-                match: /categories:(\i),collapsedCategories:(\i),([^}]*?renderRow:\i,)renderSectionHeader:(\i)(?=,renderSectionFooter:\i,renderSection:\i,renderCategoryList:\i,renderHeaderAccessories:\i,rowHeight:48)/,
-                replace: "categories:$1,collapsedCategories:$2,$3renderSectionHeader:(category,index)=>$self.renderRandomSoundboardSectionHeader($4(category,index),$1,index)",
+                match: /(\i)=(\i)\.useMemo\(\(\)=>(\i)\.filter\((\i)=>\4\.items\.length>0\),\[\3\]\)/,
+                replace: "$1=$2.useMemo(()=>$self.addRandomSoundboardCategory($3.filter($4=>$4.items.length>0)),[$3])",
             },
             {
-                match: /categories:(\i),collapsedCategories:(\i),([^}]*?renderHeaderAccessories:\i,rowHeight:48,)sectionHeaderHeight:(\i),sectionFooterHeight:/,
-                replace: "categories:$1,collapsedCategories:$2,$3sectionHeaderHeight:index=>$self.adjustRandomSoundboardHeaderHeight($4(index),$1,index),sectionFooterHeight:",
+                match: /renderRow:(\i)(?=,renderSectionHeader:\i,renderSectionFooter:\i,renderSection:\i,renderCategoryList:\i,renderHeaderAccessories:\i,rowHeight:48)/,
+                replace: "renderRow:(...args)=>$self.renderRandomSoundboardRow(args[0],args[1],args[3],args[4],()=>$1(...args))",
             },
         ],
     }],
@@ -1974,33 +2620,23 @@ export default definePlugin({
         render: RandomFavoritesButton,
     },
 
-    renderRandomSoundboardSectionHeader(
-        nativeHeader: ReactNode,
-        categories: readonly SoundboardCategory[],
-        index: number,
-    ) {
-        return shouldInsertRandomSoundboardSection(
-            categories,
-            index,
-            soundboardInsertionGuildId(),
-        )
-            ? <><RandomSoundboardSection />{nativeHeader}</>
-            : nativeHeader;
-    },
+    addRandomSoundboardCategory,
 
-    adjustRandomSoundboardHeaderHeight(
-        nativeHeight: number,
-        categories: readonly SoundboardCategory[],
-        index: number,
+    renderRandomSoundboardRow(
+        descriptors: readonly RandomSoundboardRowDescriptor[],
+        rowProps: ComponentProps<"ul">,
+        getItemProps: ((columnIndex: number) => RandomSoundboardGridItemProps) | undefined,
+        onItemMouseEnter: ((columnIndex: number) => void) | undefined,
+        renderNativeRow: () => ReactNode,
     ) {
-        return nativeHeight + (
-            shouldInsertRandomSoundboardSection(
-                categories,
-                index,
-                soundboardInsertionGuildId(),
-            )
-                ? randomSoundboardSectionHeight
-                : 0
+        if (!isRandomSoundboardRow(descriptors)) return renderNativeRow();
+
+        return (
+            <RandomSoundboardActionsRow
+                getItemProps={getItemProps}
+                onItemMouseEnter={onItemMouseEnter}
+                rowProps={rowProps}
+            />
         );
     },
 
@@ -2009,5 +2645,7 @@ export default definePlugin({
         candidatePicker.clear();
         kindPicker.clear();
         soundboardPicker.clear();
+        virtualSoundboardGuildId = undefined;
+        revokeRandomSoundboardGuildIconUrl();
     },
 });

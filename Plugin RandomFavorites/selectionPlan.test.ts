@@ -9,12 +9,12 @@ import test from "node:test";
 
 import { buildSelectionPlan } from "./selectionPlan";
 
-type Kind = "gif" | "emoji" | "sticker";
+type Kind = "gif" | "emoji" | "sticker" | "soundboard";
 
 test("single-item mode asks the mixed picker exactly once", () => {
     const mixedCalls: Kind[][] = [];
     const plan = buildSelectionPlan(
-        ["gif", "emoji", "sticker"] as const,
+        ["gif", "emoji", "sticker", "soundboard"] as const,
         false,
         () => {
             throw new Error("the per-kind picker must not run");
@@ -29,16 +29,17 @@ test("single-item mode asks the mixed picker exactly once", () => {
         candidates: ["chosen-emoji"],
         missingKinds: [],
     });
-    assert.deepEqual(mixedCalls, [["gif", "emoji", "sticker"]]);
+    assert.deepEqual(mixedCalls, [["gif", "emoji", "sticker", "soundboard"]]);
 });
 
 test("one-per-kind mode keeps available candidates and reports empty kinds", () => {
     const candidates: Partial<Record<Kind, string>> = {
         gif: "chosen-gif",
+        emoji: "chosen-emoji",
         sticker: "chosen-sticker",
     };
     const plan = buildSelectionPlan(
-        ["gif", "emoji", "sticker"] as const,
+        ["gif", "emoji", "sticker", "soundboard"] as const,
         true,
         kind => candidates[kind],
         () => {
@@ -47,14 +48,35 @@ test("one-per-kind mode keeps available candidates and reports empty kinds", () 
     );
 
     assert.deepEqual(plan, {
-        candidates: ["chosen-gif", "chosen-sticker"],
-        missingKinds: ["emoji"],
+        candidates: ["chosen-gif", "chosen-emoji", "chosen-sticker"],
+        missingKinds: ["soundboard"],
+    });
+});
+
+test("one-per-kind mode keeps a soundboard in stable selection order", () => {
+    const plan = buildSelectionPlan(
+        ["gif", "emoji", "sticker", "soundboard"] as const,
+        true,
+        kind => `chosen-${kind}`,
+        () => {
+            throw new Error("the mixed picker must not run");
+        },
+    );
+
+    assert.deepEqual(plan, {
+        candidates: [
+            "chosen-gif",
+            "chosen-emoji",
+            "chosen-sticker",
+            "chosen-soundboard",
+        ],
+        missingKinds: [],
     });
 });
 
 test("an empty single-item draw returns an empty plan", () => {
     const plan = buildSelectionPlan(
-        ["gif", "sticker"] as const,
+        ["gif", "sticker", "soundboard"] as const,
         false,
         () => undefined,
         () => undefined,
