@@ -77,6 +77,11 @@ import {
     type SoundboardSnapshot,
 } from "./soundboardAttachment";
 import {
+    createSharedSoundboardLoader,
+    shouldLoadChatSoundboardForKind,
+    shouldLoadChatSoundboardForKinds,
+} from "./soundboardChatLoader";
+import {
     collectChatSoundboardPool,
     collectUsableSoundboardSounds,
     getRandomSoundboardGuildIconUrl,
@@ -197,6 +202,10 @@ type SendSoundboardSound = (
 
 type GetSoundboardSoundUrl = (soundId: string) => string;
 
+type FetchSoundboardSounds = (options?: {
+    disableAnalytics?: boolean;
+}) => Promise<void>;
+
 const logger = new Logger("RandomFavorites");
 const LottiePlayer = findByPropsLazy("loadAnimation") as {
     loadAnimation(options: {
@@ -221,6 +230,10 @@ const getSoundboardSoundUrl = findByCodeLazy(
     "CDN_HOST",
     ".SOUNDBOARD_SOUND(",
 ) as GetSoundboardSoundUrl;
+const fetchSoundboardSounds = findByCodeLazy(
+    "REQUEST_SOUNDBOARD_SOUNDS",
+    "SOUNDBOARD_FETCH_DEFAULT_SOUNDS",
+) as FetchSoundboardSounds;
 const CloudUpload: typeof TCloudUpload = findLazy(
     module => module.prototype?.trackUploadFinished,
 );
@@ -234,6 +247,7 @@ const randomSoundboardGridItems: RandomSoundboardGridItem[] = [
 const candidatePicker = new AdaptiveRandomPicker<FavoriteCandidate>(candidate => candidate.key);
 const kindPicker = new AdaptiveRandomPicker<ConcreteFavoriteKind>(kind => kind);
 const soundboardPicker = new AdaptiveRandomPicker<SoundboardSound>(soundboardCandidateKey);
+const chatSoundboardLoader = createSharedSoundboardLoader();
 
 const settings = definePluginSettings({
     showChatBarButton: {
@@ -584,8 +598,15 @@ function collectSoundboardCandidates(channel: Channel) {
 
 function soundboardStoreLoadingError() {
     return localize(
-        "Discord has not loaded the soundboard yet. Open the Soundboard picker once or wait for it to finish loading, then try again.",
-        "Discord n'a pas encore chargé le soundboard. Ouvre une fois le sélecteur Soundboard ou attends la fin du chargement, puis réessaie.",
+        "Discord is still loading the accessible soundboard sounds. Try again in a moment.",
+        "Discord charge encore les sons Soundboard accessibles. Réessaie dans un instant.",
+    );
+}
+
+function soundboardStoreFetchError() {
+    return localize(
+        "Discord could not load the accessible soundboard sounds. Check your connection, then try again.",
+        "Discord n'a pas pu charger les sons Soundboard accessibles. Vérifie ta connexion, puis réessaie.",
     );
 }
 
@@ -598,9 +619,34 @@ function soundboardAttachmentPermissionError() {
 
 function soundboardUnavailableError() {
     return localize(
-        "No accessible soundboard sounds are loaded. Open the Soundboard picker once, then try again.",
-        "Aucun son de soundboard accessible n'est chargé. Ouvre une fois le sélecteur Soundboard, puis réessaie.",
+        "No accessible soundboard sounds are available for this account.",
+        "Aucun son Soundboard accessible n'est disponible pour ce compte.",
     );
+}
+
+async function ensureChatSoundboardData(shouldLoad: boolean) {
+    if (!shouldLoad) return;
+
+    const { promise, started } = chatSoundboardLoader.getOrStart(
+        () => fetchSoundboardSounds({ disableAnalytics: true }),
+    );
+
+    if (started) {
+        showToast(
+            localize(
+                "Loading accessible soundboard sounds…",
+                "Chargement des sons Soundboard accessibles…",
+            ),
+            Toasts.Type.MESSAGE,
+        );
+    }
+
+    try {
+        await promise;
+    } catch (error) {
+        logger.error("Failed to load Discord soundboard sounds for a chat attachment", error);
+        throw new SoundboardAttachmentError(soundboardStoreFetchError());
+    }
 }
 
 function resolveSoundboardPreviewUrl(sound: Pick<SoundboardSnapshot, "soundId">) {
@@ -1243,7 +1289,9 @@ function noCandidateMessage(kind: FavoriteKind, pools: FavoritePools) {
 
     if (rawCount === 0) {
         if (kind === "soundboard")
-            return soundboardStoreLoadingError();
+            return SoundboardStore.isFetchingAnySounds()
+                ? soundboardStoreLoadingError()
+                : soundboardUnavailableError();
 
         return localize(
             `No ${selectedPoolLabel(kind)} were found. Add some favorites in Discord's expression picker or change the pool settings.`,
@@ -1274,6 +1322,12 @@ function noCandidateMessageForKinds(
     const selection = selectedKindsLabel(kinds);
 
     if (rawCount === 0) {
+        if (kinds.length === 1 && kinds[0] === "soundboard") {
+            return SoundboardStore.isFetchingAnySounds()
+                ? soundboardStoreLoadingError()
+                : soundboardUnavailableError();
+        }
+
         return localize(
             `No items were found for the selected types (${selection}). Add some favorites in Discord's expression picker or change the pool settings.`,
             `Aucun élément trouvé pour les types cochés (${selection}). Ajoute des favoris dans le sélecteur d'expressions de Discord ou modifie les listes dans les réglages.`,
@@ -1328,8 +1382,8 @@ function revalidateChatSoundboardCandidate(
 
         logger.error("Failed to revalidate a chat soundboard sound", error);
         throw soundboardAttachmentError(
-            "Discord could not validate this soundboard sound. Open the Soundboard picker once, then try again.",
-            "Discord n'a pas pu valider ce son du soundboard. Ouvre une fois le sélecteur Soundboard, puis réessaie.",
+            "Discord could not validate this soundboard sound. Draw another sound, then try again.",
+            "Discord n'a pas pu valider ce son du soundboard. Relance le tirage, puis réessaie.",
         );
     }
 
@@ -2231,6 +2285,16 @@ function isRandomSoundboardRow(
 }
 
 async function runFromCommand(kind: FavoriteKind, channel: Channel) {
+    try {
+        await ensureChatSoundboardData(
+            shouldLoadChatSoundboardForKind(kind, SoundboardStore.hasFetchedAllSounds()),
+        );
+    } catch (error) {
+        const message = error instanceof Error ? error.message : soundboardStoreFetchError();
+        sendBotMessage(channel.id, { content: `🎲 ${message}` });
+        return;
+    }
+
     if (settings.store.previewBeforeSend) {
         openFavoritePreview(channel, () => drawRandomFavorite(kind, channel));
         return;
@@ -2244,6 +2308,19 @@ async function runFromCommand(kind: FavoriteKind, channel: Channel) {
 async function runSelectedFromButton(channel: Channel) {
     const kinds = selectedLeftClickKinds(channel);
     const { sendEachSelectedType } = settings.store;
+
+    try {
+        await ensureChatSoundboardData(
+            shouldLoadChatSoundboardForKinds(kinds, SoundboardStore.hasFetchedAllSounds()),
+        );
+    } catch (error) {
+        showToast(
+            error instanceof Error ? error.message : soundboardStoreFetchError(),
+            Toasts.Type.FAILURE,
+        );
+        return;
+    }
+
     const selectionError = settings.store.sendSoundboardsOnLeftClick && !canAttachFiles(channel)
         ? soundboardAttachmentPermissionError()
         : undefined;
