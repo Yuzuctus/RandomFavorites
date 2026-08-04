@@ -97,13 +97,11 @@
     text-align: center;
 }
 
-ul.vc-rf-soundboard-grid-row {
-    box-sizing: border-box;
+.vc-rf-soundboard-grid-row {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 8px;
     width: 100%;
-    min-height: 48px;
     margin: 0;
     padding: 0 8px 12px;
     list-style: none;
@@ -111,80 +109,75 @@ ul.vc-rf-soundboard-grid-row {
 
 .vc-rf-soundboard-grid-item {
     min-width: 0;
-    margin: 0;
-    padding: 0;
     list-style: none;
 }
 
-/*
- * Local chips only — no Discord hashed class names. Theme tokens with
- * fallbacks so light/dark/custom themes stay readable next to native buttons.
- */
-li.vc-rf-soundboard-grid-item > button.vc-rf-soundboard-grid-button {
+.vc-rf-soundboard-grid-button {
     box-sizing: border-box;
     display: flex;
     align-items: center;
+    justify-content: flex-start;
     gap: 8px;
     width: 100%;
-    height: 48px;
+    height: 42px;
     min-width: 0;
     margin: 0;
     padding: 0 12px;
-    overflow: hidden;
     color: var(--text-default, var(--text-normal));
     font: inherit;
     cursor: pointer;
-    background-color: var(--background-base-low, var(--background-secondary));
-    border: 0;
+    background: var(--background-base-low, var(--background-secondary));
+    border: 1px solid var(--border-subtle, var(--background-modifier-accent));
     border-radius: 8px;
     transition:
-        background-color 80ms ease,
-        color 80ms ease,
-        transform 80ms ease;
+        background-color 120ms ease,
+        border-color 120ms ease,
+        color 120ms ease,
+        transform 120ms ease;
 }
 
-li.vc-rf-soundboard-grid-item > button.vc-rf-soundboard-grid-button:hover {
-    color: var(--text-default, var(--text-normal));
-    background-color: var(--background-modifier-hover);
+.vc-rf-soundboard-grid-button:hover {
+    background: var(--background-modifier-hover);
+    border-color: var(--border-normal, var(--interactive-muted));
+    transform: translateY(-1px);
 }
 
-li.vc-rf-soundboard-grid-item > button.vc-rf-soundboard-grid-button:active {
-    color: var(--text-default, var(--text-normal));
-    background-color: var(--background-modifier-active);
-    transform: scale(.98);
+.vc-rf-soundboard-grid-button:active {
+    background: var(--background-modifier-active);
+    transform: translateY(0) scale(.98);
 }
 
-li.vc-rf-soundboard-grid-item > button.vc-rf-soundboard-grid-button:focus-visible {
+.vc-rf-soundboard-grid-button:focus-visible {
     outline: 2px solid var(--focus-primary, var(--brand-500));
-    outline-offset: -2px;
+    outline-offset: 2px;
 }
 
-li.vc-rf-soundboard-grid-item > button.vc-rf-soundboard-grid-button .vc-rf-soundboard-grid-icon {
-    display: grid;
-    flex: 0 0 20px;
-    height: 20px;
+.vc-rf-soundboard-grid-icon {
+    display: flex;
+    flex: 0 0 18px;
+    width: 18px;
+    height: 18px;
     color: var(--interactive-normal);
-    place-items: center;
 }
 
-li.vc-rf-soundboard-grid-item > button.vc-rf-soundboard-grid-button:hover .vc-rf-soundboard-grid-icon {
-    color: var(--interactive-hover, var(--interactive-normal));
+.vc-rf-soundboard-grid-button:hover .vc-rf-soundboard-grid-icon {
+    color: var(--interactive-hover);
 }
 
-li.vc-rf-soundboard-grid-item > button.vc-rf-soundboard-grid-button .vc-rf-soundboard-grid-label {
+.vc-rf-soundboard-grid-label {
     min-width: 0;
     overflow: hidden;
-    color: var(--text-default, var(--text-normal));
-    font-size: 14px;
+    color: inherit;
+    font-size: 13px;
     font-weight: 500;
     line-height: 18px;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
 
-@media (max-width: 320px) {
-    ul.vc-rf-soundboard-grid-row {
-        grid-template-columns: minmax(0, 1fr);
+@media (max-width: 360px) {
+    .vc-rf-soundboard-grid-row {
+        grid-template-columns: 1fr;
     }
 }
 
