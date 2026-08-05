@@ -2716,6 +2716,10 @@ export default definePlugin({
                 match: /renderRow:(\i)(?=,renderSectionHeader:\i,renderSectionFooter:\i,renderSection:\i,renderCategoryList:\i,renderHeaderAccessories:\i,rowHeight:48)/,
                 replace: "renderRow:(...args)=>$self.renderRandomSoundboardRow(args[0],args[1],args[3],args[4],()=>$1(...args))",
             },
+            {
+                match: /\(0,(\i)\.jsx\)\((\i),\{soundboardListRef:(\i),categories:(\i),shouldUpsellLockedCategories:/,
+                replace: "(0,$1.jsx)($2,{soundboardListRef:$3,categories:$self.addRandomSoundboardCategory($4),shouldUpsellLockedCategories:",
+            },
         ],
     }],
 
